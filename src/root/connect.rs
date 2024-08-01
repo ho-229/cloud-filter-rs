@@ -50,7 +50,7 @@ impl<T> Connection<T> {
 
     /// A reference to the inner [SyncFilter][crate::filter::SyncFilter] struct.
     pub fn filter(&self) -> &T {
-        &self.filter.as_ref()
+        &self.filter
     }
 }
 
