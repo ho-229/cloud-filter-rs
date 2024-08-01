@@ -1,0 +1,25 @@
+name: test behavior
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "**.rs"
+      - "**/Cargo.toml"
+      - ".github/workflows/test_behavior.yml"
+  pull_request:
+    paths:
+      - "**.rs"
+      - "**/Cargo.toml"
+      - ".github/workflows/test_behavior.yml"
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo test
+        run: cargo test --all-features --workspace
