@@ -1,10 +1,10 @@
 use core::str;
-use std::fs;
+use std::{fs, future::Future, pin::Pin};
 
 use anyhow::Context;
 use cloud_filter::{
     error::{CResult, CloudErrorKind},
-    filter::{info, ticket, SyncFilter},
+    filter::{info, ticket, AsyncBridge, Filter},
     metadata::Metadata,
     placeholder_file::PlaceholderFile,
     request::Request,
@@ -17,12 +17,12 @@ use cloud_filter::{
 use libtest_mimic::Failed;
 use nt_time::FileTime;
 
-const ROOT_PATH: &str = "C:\\sync_filter_test";
+const ROOT_PATH: &str = "C:\\async_filter_test";
 
 struct MemFilter;
 
-impl SyncFilter for MemFilter {
-    fn fetch_data(
+impl Filter for MemFilter {
+    async fn fetch_data(
         &self,
         request: Request,
         ticket: ticket::FetchData,
@@ -45,7 +45,7 @@ impl SyncFilter for MemFilter {
         Ok(())
     }
 
-    fn fetch_placeholders(
+    async fn fetch_placeholders(
         &self,
         request: Request,
         ticket: ticket::FetchPlaceholders,
@@ -91,7 +91,10 @@ impl SyncFilter for MemFilter {
     }
 }
 
-fn init() -> anyhow::Result<(SyncRootId, Connection<MemFilter>)> {
+fn init() -> anyhow::Result<(
+    SyncRootId,
+    Connection<AsyncBridge<MemFilter, impl Fn(Pin<Box<dyn Future<Output = ()>>>)>>,
+)> {
     let sync_root_id = SyncRootIdBuilder::new("sync_filter_test_provider")
         .user_security_id(SecurityId::current_user().context("current_user")?)
         .build();
@@ -114,7 +117,9 @@ fn init() -> anyhow::Result<(SyncRootId, Connection<MemFilter>)> {
     }
 
     let connection = Session::new()
-        .connect(ROOT_PATH, MemFilter)
+        .connect_async(ROOT_PATH, MemFilter, move |f| {
+            futures::executor::block_on(f)
+        })
         .context("connect")?;
 
     Ok((sync_root_id, connection))
