@@ -1,5 +1,5 @@
 use core::str;
-use std::{fs, future::Future, pin::Pin};
+use std::{fs, future::Future, path::Path, pin::Pin};
 
 use anyhow::Context;
 use cloud_filter::{
@@ -126,7 +126,7 @@ fn init() -> anyhow::Result<(
 }
 
 pub fn test() -> Result<(), Failed> {
-    if !fs::exists(ROOT_PATH).context("exists")? {
+    if !Path::new(ROOT_PATH).try_exists().context("exists")? {
         fs::create_dir(ROOT_PATH).context("create root dir")?;
     }
 

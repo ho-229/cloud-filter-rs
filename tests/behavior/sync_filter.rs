@@ -1,5 +1,5 @@
 use core::str;
-use std::fs;
+use std::{fs, path::Path};
 
 use anyhow::Context;
 use cloud_filter::{
@@ -121,7 +121,7 @@ fn init() -> anyhow::Result<(SyncRootId, Connection<MemFilter>)> {
 }
 
 pub fn test() -> Result<(), Failed> {
-    if !fs::exists(ROOT_PATH).context("exists")? {
+    if !Path::new(ROOT_PATH).try_exists().context("exists")? {
         fs::create_dir(ROOT_PATH).context("create root dir")?;
     }
 
