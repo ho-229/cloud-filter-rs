@@ -6,7 +6,7 @@
 /// been updated.
 ///
 /// A USN is commonly used to prevent a change from happening unless the USN is up to date. For
-/// instance, [FileExt::update][crate::ext::FileExt::update] will not apply the specified changes
+/// instance, [Placeholder::update][crate::placeholder::Placeholder::update] will not apply the specified changes
 /// unless if the passed USN matches the most recent USN of the file. This avoids applying changes
 /// that may be out of date.
 pub type Usn = i64;

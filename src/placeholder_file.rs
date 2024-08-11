@@ -16,7 +16,7 @@ use crate::{metadata::Metadata, sealed, usn::Usn};
 pub struct PlaceholderFile(CF_PLACEHOLDER_CREATE_INFO);
 
 impl PlaceholderFile {
-    /// Creates a new [PlaceholderFile][crate::PlaceholderFile].
+    /// Creates a new [PlaceholderFile].
     pub fn new(relative_path: impl AsRef<Path>) -> Self {
         Self(CF_PLACEHOLDER_CREATE_INFO {
             RelativeFileName: PCWSTR(
@@ -30,12 +30,8 @@ impl PlaceholderFile {
         })
     }
 
-    /// Marks this [PlaceholderFile][crate::PlaceholderFile] as having no child placeholders on
+    /// Marks this [PlaceholderFile] as having no child placeholders on
     /// creation.
-    ///
-    /// If [PopulationType::Full][crate::PopulationType] is specified on registration, this flag
-    /// will prevent [SyncFilter::fetch_placeholders][crate::SyncFilter::fetch_placeholders] from
-    /// being called for this placeholder.
     ///
     /// Only applicable to placeholder directories.
     pub fn has_no_children(mut self) -> Self {
@@ -67,15 +63,15 @@ impl PlaceholderFile {
         self
     }
 
-    /// The metadata for the [PlaceholderFile][crate::PlaceholderFile].
+    /// The metadata for the [PlaceholderFile].
     pub fn metadata(mut self, metadata: Metadata) -> Self {
         self.0.FsMetadata = metadata.0;
         self
     }
 
     /// A buffer of bytes stored with the file that could be accessed through a
-    /// [Request::file_blob][crate::Request::file_blob] or
-    /// [FileExit::placeholder_info][crate::ext::FileExt::placeholder_info].
+    /// [Request::file_blob][crate::filter::Request::file_blob] or
+    /// [Placeholder::info][crate::placeholder::Placeholder::info].
     ///
     /// The buffer must not exceed
     /// [4KiB](https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/Storage/CloudFilters/constant.CF_PLACEHOLDER_MAX_FILE_IDENTITY_LENGTH.html).
@@ -106,14 +102,16 @@ impl PlaceholderFile {
 
     /// Creates a placeholder file/directory on the file system.
     ///
-    /// The value returned is the final [Usn][crate::Usn] after the placeholder is created.
+    /// The value returned is the final [Usn] after the placeholder is created.
     ///
     /// It is recommended to use this function over
-    /// [FileExt::to_placeholder][crate::ext::FileExt::to_placeholder] for efficiency purposes. If you
-    /// need to create multiple placeholders, consider using [BatchCreate][crate::BatchCreate].
+    /// [Placeholder][crate::placeholder::Placeholder::convert_to_placeholder] for efficiency purposes. If you
+    /// need to create multiple placeholders, consider using [BatchCreate::create].
     ///
-    /// If you need to create placeholders from the [SyncFilter::fetch_placeholders][crate::SyncFilter::fetch_placeholders] callback, do not use this method. Instead, use
-    /// [FetchPlaceholders::pass_with_placeholders][crate::ticket::FetchPlaceholders::pass_with_placeholders].
+    /// If you need to create placeholders from the
+    /// [SyncFilter::fetch_placeholders][crate::filter::SyncFilter::fetch_placeholders] callback,
+    /// do not use this method. Instead, use
+    /// [FetchPlaceholders::pass_with_placeholder][crate::filter::ticket::FetchPlaceholders::pass_with_placeholder].
     pub fn create<P: AsRef<Path>>(self, parent: impl AsRef<Path>) -> core::Result<Usn> {
         unsafe {
             CfCreatePlaceholders(

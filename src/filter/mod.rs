@@ -1,6 +1,10 @@
-/// Information for callbacks in the [SyncFilter][crate::SyncFilter] trait.
+/// This module contains the structs that are used to pass information into the callbacks of the
+/// [SyncFilter][crate::filter::SyncFilter] trait and the [Filter][crate::filter::Filter] trait.
 pub mod info;
-/// Tickets for callbacks in the [SyncFilter][crate::SyncFilter] trait.
+
+/// This module contains the structs that are used to represent the operation that the engine
+/// needs to perform. They are used as parameters to the methods of the [SyncFilter][crate::filter::SyncFilter]
+/// trait and the [Filter][crate::filter::Filter] trait.
 pub mod ticket;
 
 pub use async_filter::{AsyncBridge, Filter};

@@ -140,7 +140,7 @@ pub trait Filter: Send + Sync {
 
     /// Placeholder for changed attributes under the sync root.
     ///
-    /// This callback is implemented using [ReadDirectoryChangesW][https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw]
+    /// This callback is implemented using [ReadDirectoryChangesW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw)
     /// so it is not provided by the `Cloud Filter APIs`.
     ///
     /// This callback is used to detect when a user pins or unpins a placeholder file, etc.

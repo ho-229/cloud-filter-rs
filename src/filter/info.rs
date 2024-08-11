@@ -154,13 +154,13 @@ impl Debug for FetchPlaceholders {
 }
 
 /// Information for the
-/// [SyncFilter::cancel_fetch_placeholders][crate::SyncFilter::cancel_fetch_placeholders] callback.
+/// [SyncFilter::cancel_fetch_placeholders][super::SyncFilter::cancel_fetch_placeholders] callback.
 pub struct CancelFetchPlaceholders(pub(crate) CF_CALLBACK_PARAMETERS_0_0);
 
 impl CancelFetchPlaceholders {
     /// Whether or not the callback failed as a result of the 60 second timeout.
     ///
-    /// Read more [here][crate::Request::reset_timeout].
+    // Read more [here][crate::filter::Request::reset_timeout].
     pub fn timeout(&self) -> bool {
         (self.0.Flags & CloudFilters::CF_CALLBACK_CANCEL_FLAG_IO_TIMEOUT).0 != 0
     }
@@ -182,7 +182,7 @@ impl Debug for CancelFetchPlaceholders {
     }
 }
 
-/// Information for the [SyncFilter::opened][crate::SyncFilter::opened] callback.
+/// Information for the [SyncFilter::opened][super::SyncFilter::opened] callback.
 pub struct Opened(pub(crate) CF_CALLBACK_PARAMETERS_0_8);
 
 impl Opened {
@@ -207,7 +207,7 @@ impl Debug for Opened {
     }
 }
 
-/// Information for the [SyncFilter::closed][crate::SyncFilter::closed] callback.
+/// Information for the [SyncFilter::closed][super::SyncFilter::closed] callback.
 pub struct Closed(pub(crate) CF_CALLBACK_PARAMETERS_0_1);
 
 impl Closed {
@@ -225,7 +225,7 @@ impl Debug for Closed {
     }
 }
 
-/// Information for the [SyncFilter::dehydrate][crate::SyncFilter::dehydrate] callback.
+/// Information for the [SyncFilter::dehydrate][super::SyncFilter::dehydrate] callback.
 pub struct Dehydrate(pub(crate) CF_CALLBACK_PARAMETERS_0_3);
 
 impl Dehydrate {
@@ -249,7 +249,7 @@ impl Debug for Dehydrate {
     }
 }
 
-/// Information for the [SyncFilter::dehydrated][crate::SyncFilter::dehydrated] callback.
+/// Information for the [SyncFilter::dehydrated][super::SyncFilter::dehydrated] callback.
 pub struct Dehydrated(pub(crate) CF_CALLBACK_PARAMETERS_0_2);
 
 impl Dehydrated {
@@ -279,7 +279,7 @@ impl Debug for Dehydrated {
     }
 }
 
-/// Information for the [SyncFilter::delete][crate::SyncFilter::delete] callback.
+/// Information for the [SyncFilter::delete][super::SyncFilter::delete] callback.
 pub struct Delete(pub(crate) CF_CALLBACK_PARAMETERS_0_5);
 
 impl Delete {

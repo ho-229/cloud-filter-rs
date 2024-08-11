@@ -34,7 +34,7 @@ use crate::{metadata::Metadata, usn::Usn};
 pub enum PlaceholderHandleType {
     /// A handle that was opened with [CfOpenFileWithOplock].
     CfApi,
-    /// A handle that was opened with [CreateFile] etc.
+    /// A handle that was opened with [CreateFileW][windows::Win32::Storage::FileSystem::CreateFileW] etc.
     Win32,
 }
 
@@ -60,7 +60,8 @@ impl OwnedPlaceholderHandle {
         }
     }
 
-    /// Create a new [OwnedPlaceholderHandle] from a handle returned by [CreateFile] etc.
+    /// Create a new [OwnedPlaceholderHandle] from a handle returned by
+    /// [CreateFile][windows::Win32::Storage::FileSystem::CreateFileW] etc.
     ///
     /// # Safety
     ///
@@ -196,10 +197,10 @@ impl Default for OpenOptions {
 pub enum PinState {
     /// The platform could decide freely.
     Unspecified,
-    /// [SyncFilter::fetch_data][crate::SyncFilter::fetch_data] will be called to hydrate the rest
+    /// [SyncFilter::fetch_data][crate::filter::SyncFilter::fetch_data] will be called to hydrate the rest
     /// of the placeholder's data. Any dehydration requests will fail automatically.
     Pinned,
-    /// [SyncFilter::dehydrate][crate::SyncFilter::dehydrate] will be called to dehydrate the rest
+    /// [SyncFilter::dehydrate][crate::filter::SyncFilter::dehydrate] will be called to dehydrate the rest
     /// of the placeholder's data.
     Unpinned,
     /// The placeholder will never sync to the cloud.
@@ -292,7 +293,8 @@ impl ConvertOptions {
         self
     }
 
-    /// Marks the placeholder as "partially full," such that [SyncFilter::fetch_placeholders][crate::SyncFilter::fetch_placeholders]
+    /// Marks the placeholder as "partially full," such that
+    /// [SyncFilter::fetch_placeholders][crate::filter::SyncFilter::fetch_placeholders]
     /// will be invoked when this directory is next accessed so that the remaining placeholders are inserted.
     ///
     /// Only applicable to placeholder directories.
@@ -319,8 +321,7 @@ impl ConvertOptions {
     }
 
     /// A buffer of bytes stored with the file that could be accessed through a
-    /// [Request::file_blob][crate::Request::file_blob] or
-    /// [FileExit::placeholder_info][crate::ext::FileExt::placeholder_info].
+    /// [Request::file_blob][crate::filter::Request::file_blob] or [Placeholder::info].
     ///
     /// The buffer must not exceed
     /// [4KiB](https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/Storage/CloudFilters/constant.CF_PLACEHOLDER_MAX_FILE_IDENTITY_LENGTH.html).
@@ -414,7 +415,7 @@ pub struct UpdateOptions<'a> {
 }
 
 impl<'a> UpdateOptions<'a> {
-    /// [Metadata][crate::Metadata] contains file system metadata about the placeholder to be updated.
+    /// [Metadata] contains file system metadata about the placeholder to be updated.
     ///
     /// File size will be truncates to 0 if not specified, otherwise to the specified size.
     pub fn metadata(mut self, metadata: Metadata) -> Self {
@@ -423,7 +424,7 @@ impl<'a> UpdateOptions<'a> {
         self
     }
 
-    /// Fields in [Metadata][crate::Metadata] will be updated.
+    /// Fields in [Metadata] will be updated.
     pub fn metadata_all(mut self, metadata: Metadata) -> Self {
         self.flags |= CloudFilters::CF_UPDATE_FLAG_PASSTHROUGH_FS_METADATA;
         self.metadata = Some(metadata);
@@ -611,7 +612,7 @@ impl Placeholder {
         Self { handle }
     }
 
-    /// Open options for opening [Placeholder][crate::Placeholder]s.
+    /// Open options for opening [Placeholder]s.
     pub fn options() -> OpenOptions {
         OpenOptions::default()
     }
@@ -623,8 +624,8 @@ impl Placeholder {
 
     /// Marks a placeholder as in sync or not.
     ///
-    /// If the passed [USN][crate::Usn] is outdated, the call will fail,
-    /// otherwise the [USN][crate::Usn] will be updated.
+    /// If the passed [Usn] is outdated, the call will fail,
+    /// otherwise the [Usn] will be updated.
     ///
     /// See also
     /// [SetInSyncState](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfsetinsyncstate),
@@ -661,8 +662,8 @@ impl Placeholder {
 
     /// Converts a file to a placeholder file.
     ///
-    /// If the passed [USN][crate::Usn] is outdated, the call will fail,
-    /// otherwise the [USN][crate::Usn] will be updated.
+    /// If the passed [Usn] is outdated, the call will fail,
+    /// otherwise the [Usn] will be updated.
     ///
     /// See also [CfConvertToPlaceholder](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfconverttoplaceholder).
     pub fn convert_to_placeholder<'a>(

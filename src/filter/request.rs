@@ -6,14 +6,7 @@ use windows::Win32::Storage::CloudFilters::{CF_CALLBACK_INFO, CF_PROCESS_INFO};
 pub type RawConnectionKey = i64;
 pub type RawTransferKey = i64;
 
-/// A struct containing various information for the current file operation.
-///
-/// If there is no activity on the placeholder (the methods in the
-/// [Placeholder][crate::Placeholder] struct returned by
-/// [Request::placeholder][crate::Request::placeholder]) within 60 seconds, the operating system
-/// will automatically invalidate the request. To prevent this, read
-/// [Request::reset_timeout][crate::Request::reset_timeout].
-#[derive(Debug)]
+/// A struct containing standard information for the current file operation.
 pub struct Request(CF_CALLBACK_INFO);
 
 impl Request {
@@ -133,8 +126,23 @@ impl Request {
     }
 }
 
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Request")
+            .field("volume_guid_path", &self.volume_guid_path())
+            .field("volume_letter", &self.volume_letter())
+            .field("volume_serial_number", &self.volume_serial_number())
+            .field("process", &self.process())
+            .field("sync_root_file_id", &self.sync_root_file_id())
+            .field("file_id", &self.file_id())
+            .field("file_size", &self.file_size())
+            .field("path", &self.path())
+            .field("priority_hint", &self.priority_hint())
+            .finish()
+    }
+}
+
 /// Information about the calling process.
-#[derive(Debug)]
 pub struct Process(CF_PROCESS_INFO);
 
 impl Process {
@@ -152,7 +160,7 @@ impl Process {
     ///
     /// ## Note
     ///
-    /// [session_id][crate::request::Process::session_id] is valid in versions 1803 and later.
+    /// [Process::session_id] is valid in versions 1803 and later.
     pub fn session_id(&self) -> u32 {
         self.0.SessionId
     }
@@ -166,7 +174,7 @@ impl Process {
     ///
     /// ## Note
     ///
-    /// [command_line][crate::request::Process::command_line] is valid in versions 1803 and later.
+    /// [Process::command_line] is valid in versions 1803 and later.
     pub fn command_line(&self) -> Option<OsString> {
         let cmd = unsafe { U16CStr::from_ptr_str(self.0.ImagePath.0) };
         (cmd != u16cstr!("UNKNOWN")).then(|| cmd.to_os_string())
@@ -180,5 +188,18 @@ impl Process {
     pub fn path(&self) -> Option<PathBuf> {
         let path = unsafe { U16CStr::from_ptr_str(self.0.ImagePath.0) };
         (path != u16cstr!("UNKNOWN")).then(|| PathBuf::from(path.to_os_string()))
+    }
+}
+
+impl std::fmt::Debug for Process {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Process")
+            .field("name", &self.name())
+            .field("id", &self.id())
+            .field("session_id", &self.session_id())
+            .field("application_id", &self.application_id())
+            .field("command_line", &self.command_line())
+            .field("path", &self.path())
+            .finish()
     }
 }

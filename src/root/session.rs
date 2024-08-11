@@ -38,12 +38,12 @@ use crate::{
 pub struct Session(CF_CONNECT_FLAGS);
 
 impl Session {
-    /// Create a new [Session][crate::Session].
+    /// Create a new [Session].
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// The [block_implicit_hydration][crate::Session::block_implicit_hydration] flag will prevent
+    /// The [Session::block_implicit_hydration] flag will prevent
     /// implicit placeholder hydrations from invoking
     /// [SyncFilter::fetch_data][crate::filter::SyncFilter::fetch_data]. This could occur when an
     /// anti-virus is scanning file system activity on files within the sync root.
