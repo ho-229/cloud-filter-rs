@@ -1,5 +1,4 @@
 use std::{
-    ffi::OsString,
     fs::OpenOptions,
     mem::{self, MaybeUninit},
     os::windows::{fs::OpenOptionsExt, io::AsRawHandle},
@@ -12,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use widestring::{u16cstr, U16CString, U16Str};
+use widestring::{U16CString, U16Str};
 use windows::{
     core::{self, PCWSTR},
     Win32::{
@@ -24,11 +23,7 @@ use windows::{
                 FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_INFORMATION,
             },
         },
-        System::{
-            Com::{self, CoCreateInstance},
-            Search::{self, ISearchManager},
-            IO::{CancelIoEx, GetOverlappedResult},
-        },
+        System::IO::{CancelIoEx, GetOverlappedResult},
     },
 };
 
@@ -65,9 +60,6 @@ impl Session {
         P: AsRef<Path>,
         F: SyncFilter + 'static,
     {
-        // https://github.com/microsoft/Windows-classic-samples/blob/27ffb0811ca761741502feaefdb591aebf592193/Samples/CloudMirror/CloudMirror/Utilities.cpp#L19
-        index_path(path.as_ref())?;
-
         let filter = Arc::new(filter);
         let callbacks = filter::callbacks::<F>();
         let key = unsafe {
@@ -120,34 +112,6 @@ impl Session {
 impl Default for Session {
     fn default() -> Self {
         Self(CloudFilters::CF_CONNECT_FLAG_NONE)
-    }
-}
-
-fn index_path(path: &Path) -> core::Result<()> {
-    unsafe {
-        let searcher: ISearchManager = CoCreateInstance(
-            &Search::CSearchManager as *const _,
-            None,
-            Com::CLSCTX_SERVER,
-        )?;
-
-        let catalog = searcher.GetCatalog(PCWSTR(u16cstr!("SystemIndex").as_ptr()))?;
-
-        let mut url = OsString::from("file:///");
-        url.push(path);
-
-        let crawler = catalog.GetCrawlScopeManager()?;
-        crawler.AddDefaultScopeRule(
-            PCWSTR(
-                U16CString::from_os_str(url)
-                    .expect("not contains nul")
-                    .as_ptr(),
-            ),
-            true,
-            Search::FF_INDEXCOMPLEXURLS.0 as u32,
-        )?;
-
-        crawler.SaveAll()
     }
 }
 

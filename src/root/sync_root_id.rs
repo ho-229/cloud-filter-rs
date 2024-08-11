@@ -6,9 +6,9 @@ use std::{
     ptr,
 };
 
-use widestring::{U16CStr, U16Str, U16String};
+use widestring::{u16cstr, U16CStr, U16CString, U16Str, U16String};
 use windows::{
-    core::{self, Error, HSTRING, PWSTR},
+    core::{self, Error, HSTRING, PCWSTR, PWSTR},
     Storage::{Provider::StorageProviderSyncRootManager, StorageFolder},
     Win32::{
         Foundation::{
@@ -16,6 +16,10 @@ use windows::{
         },
         Security::{self, Authorization::ConvertSidToStringSidW, GetTokenInformation, TOKEN_USER},
         Storage::CloudFilters,
+        System::{
+            Com::{self, CoCreateInstance},
+            Search::{self, ISearchManager},
+        },
     },
 };
 
@@ -177,6 +181,14 @@ impl SyncRootId {
         StorageProviderSyncRootManager::Unregister(&self.0)
     }
 
+    /// Indexes the sync root at the current [SyncRootId].
+    ///
+    /// Returns an error if the sync root does not exist or unable to index.
+    pub fn index(&self) -> core::Result<()> {
+        let path = self.info()?.path();
+        index_path(&path)
+    }
+
     /// Encodes the [SyncRootId] to an [OsString].
     pub fn to_os_string(&self) -> OsString {
         OsString::from_wide(self.0.as_wide())
@@ -275,5 +287,33 @@ impl SecurityId {
 
             Ok(SecurityId::new(string_sid))
         }
+    }
+}
+
+fn index_path(path: &Path) -> core::Result<()> {
+    unsafe {
+        let searcher: ISearchManager = CoCreateInstance(
+            &Search::CSearchManager as *const _,
+            None,
+            Com::CLSCTX_SERVER,
+        )?;
+
+        let catalog = searcher.GetCatalog(PCWSTR(u16cstr!("SystemIndex").as_ptr()))?;
+
+        let mut url = OsString::from("file:///");
+        url.push(path);
+
+        let crawler = catalog.GetCrawlScopeManager()?;
+        crawler.AddDefaultScopeRule(
+            PCWSTR(
+                U16CString::from_os_str(url)
+                    .expect("not contains nul")
+                    .as_ptr(),
+            ),
+            true,
+            Search::FF_INDEXCOMPLEXURLS.0 as u32,
+        )?;
+
+        crawler.SaveAll()
     }
 }
