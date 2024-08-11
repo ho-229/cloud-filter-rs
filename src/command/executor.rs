@@ -11,7 +11,7 @@ use windows::{
 
 use crate::{
     error::CloudErrorKind,
-    request::{RawConnectionKey, RawTransferKey},
+    filter::{RawConnectionKey, RawTransferKey},
 };
 
 /// Allows a command to fail with a specified error.

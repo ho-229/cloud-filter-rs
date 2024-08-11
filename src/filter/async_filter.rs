@@ -2,7 +2,7 @@ use std::{future::Future, mem::MaybeUninit, ops::Deref, path::PathBuf};
 
 use crate::{
     error::{CResult, CloudErrorKind},
-    request::Request,
+    filter::Request,
     utility::LocalBoxFuture,
 };
 

@@ -7,8 +7,8 @@ use windows::{
 
 use crate::{
     command::{self, Command},
+    filter::{RawConnectionKey, RawTransferKey},
     placeholder_file::PlaceholderFile,
-    request::{RawConnectionKey, RawTransferKey},
     sealed, utility,
 };
 

@@ -16,9 +16,9 @@ use windows::{
 use crate::{
     command::executor::{execute, Command, Fallible},
     error::CloudErrorKind,
+    filter::{RawConnectionKey, RawTransferKey},
     metadata::Metadata,
     placeholder_file::PlaceholderFile,
-    request::{RawConnectionKey, RawTransferKey},
 };
 
 /// Read data from a placeholder file.

@@ -2,8 +2,7 @@ use std::path::PathBuf;
 
 use crate::{
     error::{CResult, CloudErrorKind},
-    filter::{info, ticket},
-    request::Request,
+    filter::{info, ticket, Request},
 };
 
 /// Core functions for implementing a Sync Engine.
