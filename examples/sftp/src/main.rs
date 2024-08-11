@@ -10,11 +10,10 @@ use std::{
 
 use cloud_filter::{
     error::{CResult, CloudErrorKind},
-    filter::{info, ticket, SyncFilter},
+    filter::{info, ticket, Request, SyncFilter},
     metadata::Metadata,
     placeholder::{ConvertOptions, Placeholder},
     placeholder_file::PlaceholderFile,
-    request::Request,
     root::{HydrationType, PopulationType, SecurityId, Session, SyncRootIdBuilder, SyncRootInfo},
     utility::{FileTime, WriteAt},
 };

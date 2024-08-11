@@ -4,10 +4,9 @@ use std::{fs, future::Future, path::Path, pin::Pin};
 use anyhow::Context;
 use cloud_filter::{
     error::{CResult, CloudErrorKind},
-    filter::{info, ticket, AsyncBridge, Filter},
+    filter::{info, ticket, AsyncBridge, Filter, Request},
     metadata::Metadata,
     placeholder_file::PlaceholderFile,
-    request::Request,
     root::{
         Connection, HydrationType, PopulationType, SecurityId, Session, SyncRootId,
         SyncRootIdBuilder, SyncRootInfo,

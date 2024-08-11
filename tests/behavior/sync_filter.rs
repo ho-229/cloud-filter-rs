@@ -4,10 +4,9 @@ use std::{fs, path::Path};
 use anyhow::Context;
 use cloud_filter::{
     error::{CResult, CloudErrorKind},
-    filter::{info, ticket, SyncFilter},
+    filter::{info, ticket, Request, SyncFilter},
     metadata::Metadata,
     placeholder_file::PlaceholderFile,
-    request::Request,
     root::{
         Connection, HydrationType, PopulationType, SecurityId, Session, SyncRootId,
         SyncRootIdBuilder, SyncRootInfo,

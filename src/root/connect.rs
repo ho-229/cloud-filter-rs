@@ -6,7 +6,7 @@ use std::{
 
 use windows::Win32::Storage::CloudFilters::{CfDisconnectSyncRoot, CF_CONNECTION_KEY};
 
-use crate::{filter::Callbacks, request::RawConnectionKey};
+use crate::filter::{Callbacks, RawConnectionKey};
 
 /// A handle to the current session for a given sync root.
 ///
