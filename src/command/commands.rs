@@ -110,6 +110,7 @@ impl Fallible for Write<'_> {
 
 /// Update various properties on a placeholder.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Update<'a> {
     /// Whether or not to mark the placeholder as "synced."
     pub mark_in_sync: bool,

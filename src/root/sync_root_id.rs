@@ -66,7 +66,7 @@ impl SyncRootIdBuilder {
             name.len()
         );
         assert!(
-            !name.as_slice().iter().any(|c| *c == SyncRootId::SEPARATOR),
+            !name.as_slice().contains(&SyncRootId::SEPARATOR),
             "provider name must not contain exclamation points"
         );
 
@@ -245,7 +245,7 @@ impl SecurityId {
     pub fn new(id: impl AsRef<OsStr>) -> Self {
         let id = U16String::from_os_str(&id);
         assert!(
-            !id.as_slice().iter().any(|x| *x == SyncRootId::SEPARATOR),
+            !id.as_slice().contains(&SyncRootId::SEPARATOR),
             "security id cannot contain exclamation points"
         );
 
@@ -256,31 +256,36 @@ impl SecurityId {
     pub fn current_user() -> core::Result<Self> {
         unsafe {
             let mut token_size = 0;
-            let mut token = MaybeUninit::<TOKEN_USER>::uninit();
 
             // get the token size
-            if let Err(e) = GetTokenInformation(
+            let info = GetTokenInformation(
                 Self::CURRENT_THREAD_EFFECTIVE_TOKEN,
                 Security::TokenUser,
                 None,
                 0,
                 &mut token_size,
-            ) {
+            );
+
+            if let Err(e) = info {
                 if e.code() != ERROR_INSUFFICIENT_BUFFER.to_hresult() {
                     Err(e)?;
                 }
-                GetTokenInformation(
-                    Self::CURRENT_THREAD_EFFECTIVE_TOKEN,
-                    Security::TokenUser,
-                    Some(&mut token as *mut _ as *mut _),
-                    token_size,
-                    &mut token_size,
-                )?;
             }
 
-            let token = token.assume_init();
+            let mut buffer = Vec::<MaybeUninit<u8>>::with_capacity(token_size as usize);
+            buffer.set_len(token_size as usize);
+
+            GetTokenInformation(
+                Self::CURRENT_THREAD_EFFECTIVE_TOKEN,
+                Security::TokenUser,
+                Some(buffer.as_mut_ptr() as *mut _),
+                token_size,
+                &mut token_size,
+            )?;
+
+            let token_user = &*(buffer.as_ptr() as *const TOKEN_USER);
             let mut sid = PWSTR(ptr::null_mut());
-            ConvertSidToStringSidW(token.User.Sid, &mut sid as *mut _)?;
+            ConvertSidToStringSidW(token_user.User.Sid, &mut sid as *mut _)?;
 
             let string_sid = U16CStr::from_ptr_str(sid.0).to_os_string();
             LocalFree(HLOCAL(sid.0 as *mut _));

@@ -92,7 +92,7 @@ impl SyncRootInfo {
     //     unsafe { &*self.info }.HydrationPolicy.Primary.into()
     // }
 
-    /// The hydration type of the sync root.
+    // /// The hydration type of the sync root.
     // pub fn hydration_type(&self) -> HydrationPolicy {
     //     unsafe { &*self.info }.HydrationPolicy.Modifier.into()
     // }
