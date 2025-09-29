@@ -66,7 +66,7 @@ impl SyncRootIdBuilder {
             name.len()
         );
         assert!(
-            name.as_slice().contains(&SyncRootId::SEPARATOR),
+            !name.as_slice().contains(&SyncRootId::SEPARATOR),
             "provider name must not contain exclamation points"
         );
 
@@ -245,7 +245,7 @@ impl SecurityId {
     pub fn new(id: impl AsRef<OsStr>) -> Self {
         let id = U16String::from_os_str(&id);
         assert!(
-            id.as_slice().contains(&SyncRootId::SEPARATOR),
+            !id.as_slice().contains(&SyncRootId::SEPARATOR),
             "security id cannot contain exclamation points"
         );
 
