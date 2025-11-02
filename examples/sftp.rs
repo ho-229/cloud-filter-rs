@@ -2,7 +2,7 @@ use std::{
     env,
     ffi::OsStr,
     fs::File,
-    io::{self, Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom},
     net::TcpStream,
     path::Path,
     sync::mpsc,
@@ -17,9 +17,7 @@ use cloud_filter::{
     root::{HydrationType, PopulationType, SecurityId, Session, SyncRootIdBuilder, SyncRootInfo},
     utility::{FileTime, WriteAt},
 };
-use rkyv::{Archive, Deserialize, Serialize};
 use ssh2::Sftp;
-use thiserror::Error;
 
 // max should be 65536, this is done both in term-scp and sshfs because it's the
 // max packet size for a tcp connection
@@ -29,13 +27,8 @@ const DOWNLOAD_CHUNK_SIZE_BYTES: usize = 65536;
 const PROVIDER_NAME: &str = "wincs";
 const DISPLAY_NAME: &str = "Sftp";
 
-#[derive(Debug, Archive, Serialize, Deserialize)]
-pub struct FileBlob {
-    relative_path: String,
-}
-
 fn main() {
-    let tcp = TcpStream::connect(env::var("SERVER").unwrap()).unwrap();
+    let tcp = TcpStream::connect(env::var("SERVER").expect("SERVER env var")).unwrap();
     let mut session = ssh2::Session::new().unwrap();
     session.set_blocking(true);
     session.set_tcp_stream(tcp);
@@ -199,7 +192,16 @@ impl SyncFilter for Filter {
     }
 
     fn delete(&self, request: Request, ticket: ticket::Delete, info: info::Delete) -> CResult<()> {
-        println!("delete {:?}", request.path());
+        println!(
+            "delete {:?}, is_undelete: {}",
+            request.path(),
+            info.is_undelete()
+        );
+        if !info.is_undelete() {
+            ticket.pass().unwrap();
+            return Ok(());
+        }
+        // Server path stored in fetch_placeholders
         let path = Path::new(unsafe { OsStr::from_encoded_bytes_unchecked(request.file_blob()) });
         match info.is_directory() {
             true => self
@@ -344,15 +346,6 @@ impl SyncFilter for Filter {
     fn state_changed(&self, changes: Vec<std::path::PathBuf>) {
         println!("state_changed: {:?}", changes);
     }
-}
-
-#[derive(Error, Debug)]
-pub enum SftpError {
-    #[error(transparent)]
-    Io(#[from] io::Error),
-
-    #[error(transparent)]
-    Sftp(#[from] ssh2::Error),
 }
 
 fn wait_for_ctrlc() {

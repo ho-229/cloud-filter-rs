@@ -48,14 +48,14 @@ libtest-mimic = "0.7.3"
 futures = "0.3.30"
 anyhow = "1.0.86"
 powershell_script = "1.1.0"
+widestring = "1.0.2"
+ssh2 = "0.9.4"
+thiserror = "1.0.30"
+ctrlc = "3.4.4"
 
 [features]
 # Enable globs in the `info::FetchPlaceholders` struct.
 globs = ["globset"]
-
-# TODO: temporarily ignored
-[workspace]
-members = ["examples/sftp"]
 
 [[test]]
 harness = false
