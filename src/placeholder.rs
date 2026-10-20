@@ -864,19 +864,22 @@ impl Placeholder {
     /// See also [CfHydratePlaceholder](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfhydrateplaceholder)
     /// and [discussion](https://docs.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfhydrateplaceholder#remarks).
     pub fn hydrate(&mut self, range: impl RangeBounds<u64>) -> core::Result<()> {
+        let start = match range.start_bound() {
+            Bound::Included(x) => *x,
+            Bound::Excluded(x) => x + 1,
+            Bound::Unbounded => 0,
+        };
+        // CfHydratePlaceholder takes a length, -1 for the rest of the file.
+        let length: i64 = match range.end_bound() {
+            Bound::Included(x) => (x + 1 - start).try_into().unwrap(),
+            Bound::Excluded(x) => (x - start).try_into().unwrap(),
+            Bound::Unbounded => -1,
+        };
         unsafe {
             CfHydratePlaceholder(
                 self.handle.handle,
-                match range.start_bound() {
-                    Bound::Included(x) => (*x).try_into().unwrap(),
-                    Bound::Excluded(x) => (x + 1).try_into().unwrap(),
-                    Bound::Unbounded => 0,
-                },
-                match range.end_bound() {
-                    Bound::Included(x) => (*x).try_into().unwrap(),
-                    Bound::Excluded(x) => (x - 1).try_into().unwrap(),
-                    Bound::Unbounded => -1,
-                },
+                start.try_into().unwrap(),
+                length,
                 CloudFilters::CF_HYDRATE_FLAG_NONE,
                 None,
             )
