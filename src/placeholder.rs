@@ -767,7 +767,7 @@ impl Placeholder {
                 options.metadata.map(|x| &x.0 as *const _),
                 (!options.blob.is_empty()).then_some(options.blob.as_ptr() as *const _),
                 options.blob.len() as _,
-                (options.dehydrate_ranges.is_empty()).then_some(&options.dehydrate_ranges),
+                (!options.dehydrate_ranges.is_empty()).then_some(&options.dehydrate_ranges),
                 options.flags,
                 usn.into().map(|u| u as *mut _),
                 None,
