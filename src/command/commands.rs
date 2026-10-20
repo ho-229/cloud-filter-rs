@@ -108,6 +108,32 @@ impl Fallible for Write<'_> {
     }
 }
 
+impl Write<'_> {
+    /// Fails the fetch of `range`, the range the platform asked for: failing a transfer of
+    /// nothing (as [`Fallible::fail`] does) is refused as an invalid operation, and the reading
+    /// program waits for the platform's timeout instead.
+    pub fn fail_range(
+        connection_key: RawConnectionKey,
+        transfer_key: RawTransferKey,
+        range: std::ops::Range<u64>,
+        error_kind: CloudErrorKind,
+    ) -> core::Result<()> {
+        execute::<Self>(
+            CF_OPERATION_PARAMETERS_0 {
+                TransferData: CF_OPERATION_PARAMETERS_0_6 {
+                    Flags: CloudFilters::CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
+                    CompletionStatus: error_kind.into(),
+                    Buffer: std::ptr::null_mut(),
+                    Offset: range.start as i64,
+                    Length: (range.end - range.start) as i64,
+                },
+            },
+            connection_key,
+            transfer_key,
+        )
+    }
+}
+
 /// Update various properties on a placeholder.
 #[derive(Debug)]
 #[allow(dead_code)]

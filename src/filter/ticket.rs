@@ -7,6 +7,7 @@ use windows::{
 
 use crate::{
     command::{self, Command},
+    error::CloudErrorKind,
     filter::{RawConnectionKey, RawTransferKey},
     placeholder_file::PlaceholderFile,
     sealed, utility,
@@ -17,15 +18,34 @@ use crate::{
 pub struct FetchData {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    /// The range the platform asked for, which failing the fetch names.
+    range: Range<u64>,
 }
 
 impl FetchData {
     /// Create a new [FetchData].
-    pub(crate) fn new(connection_key: RawConnectionKey, transfer_key: RawTransferKey) -> Self {
+    pub(crate) fn new(
+        connection_key: RawConnectionKey,
+        transfer_key: RawTransferKey,
+        range: Range<u64>,
+    ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            range,
         }
+    }
+
+    /// Fails the fetch with `error_kind`: the program reading the file gets that error rather
+    /// than waiting for the platform's timeout. Fails if the fetch was already cancelled or
+    /// timed out.
+    pub fn fail(&self, error_kind: CloudErrorKind) -> core::Result<()> {
+        command::Write::fail_range(
+            self.connection_key,
+            self.transfer_key,
+            self.range.clone(),
+            error_kind,
+        )
     }
 
     /// Displays a progress bar next to the file in the file explorer to show the progress of the

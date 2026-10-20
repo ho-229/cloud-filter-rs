@@ -84,19 +84,17 @@ pub unsafe extern "system" fn fetch_data<T: SyncFilter + 'static>(
         let request = Request::new(*info);
         let connection_key = request.connection_key();
         let transfer_key = request.transfer_key();
-        let ticket = ticket::FetchData::new(connection_key, transfer_key);
+        let info = info::FetchData((*params).Anonymous.FetchData);
+        let range = info.required_file_range();
+        let ticket = ticket::FetchData::new(connection_key, transfer_key, range.clone());
 
-        let Err(e) = filter.fetch_data(
-            request,
-            ticket,
-            info::FetchData((*params).Anonymous.FetchData),
-        ) else {
+        let Err(e) = filter.fetch_data(request, ticket, info) else {
             return;
         };
 
         // Fails if the request was already cancelled or timed out. Nothing more can be done, and
         // a panic here would abort the process: these callbacks are `extern "system"`.
-        let _ = command::Write::fail(connection_key, transfer_key, e);
+        let _ = command::Write::fail_range(connection_key, transfer_key, range, e);
     }
 }
 
