@@ -5,7 +5,6 @@ use std::{
     ops::{Bound, Range, RangeBounds},
     os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle},
     path::Path,
-    ptr,
 };
 
 use widestring::U16CString;
@@ -643,7 +642,7 @@ impl Placeholder {
                     false => CloudFilters::CF_IN_SYNC_STATE_NOT_IN_SYNC,
                 },
                 CloudFilters::CF_SET_IN_SYNC_FLAG_NONE,
-                usn.into().map(|x| ptr::read(x) as *mut _),
+                usn.into().map(|x| x as *mut _),
             )
         }?;
 
@@ -677,7 +676,7 @@ impl Placeholder {
                 (!options.blob.is_empty()).then_some(options.blob.as_ptr() as *const _),
                 options.blob.len() as _,
                 options.flags,
-                usn.into().map(|x| ptr::read(x) as *mut _),
+                usn.into().map(|x| x as *mut _),
                 None,
             )
         }?;
