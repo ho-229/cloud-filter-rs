@@ -345,50 +345,68 @@ impl Default for ConvertOptions {
     }
 }
 
-#[derive(Clone)]
 pub struct PlaceholderInfo {
     data: Vec<u8>,
-    info: *const CF_PLACEHOLDER_STANDARD_INFO,
+    info: CF_PLACEHOLDER_STANDARD_INFO,
+}
+
+impl Clone for PlaceholderInfo {
+    fn clone(&self) -> Self {
+        Self::new(self.data.clone())
+    }
 }
 
 impl PlaceholderInfo {
+    fn new(data: Vec<u8>) -> Self {
+        let header = &data[..mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>()];
+        // The buffer contains an initialized header, but Vec<u8> does not guarantee its
+        // alignment. Own a copy so cloning never retains a pointer into another buffer.
+        let info = unsafe {
+            header
+                .as_ptr()
+                .cast::<CF_PLACEHOLDER_STANDARD_INFO>()
+                .read_unaligned()
+        };
+        Self { data, info }
+    }
+
     pub fn on_disk_data_size(&self) -> i64 {
-        unsafe { &*self.info }.OnDiskDataSize
+        self.info.OnDiskDataSize
     }
 
     pub fn validated_data_size(&self) -> i64 {
-        unsafe { &*self.info }.ValidatedDataSize
+        self.info.ValidatedDataSize
     }
 
     pub fn modified_data_size(&self) -> i64 {
-        unsafe { &*self.info }.ModifiedDataSize
+        self.info.ModifiedDataSize
     }
 
     pub fn properties_size(&self) -> i64 {
-        unsafe { &*self.info }.PropertiesSize
+        self.info.PropertiesSize
     }
 
     pub fn pin_state(&self) -> PinState {
-        unsafe { &*self.info }.PinState.into()
+        self.info.PinState.into()
     }
 
     pub fn is_in_sync(&self) -> bool {
-        unsafe { &*self.info }.InSyncState == CloudFilters::CF_IN_SYNC_STATE_IN_SYNC
+        self.info.InSyncState == CloudFilters::CF_IN_SYNC_STATE_IN_SYNC
     }
 
     pub fn file_id(&self) -> i64 {
-        unsafe { &*self.info }.FileId
+        self.info.FileId
     }
 
     pub fn sync_root_file_id(&self) -> i64 {
-        unsafe { &*self.info }.SyncRootFileId
+        self.info.SyncRootFileId
     }
 
     pub fn blob(&self) -> &[u8] {
         // The identity starts at its field, inside the structure's size (it is declared as a
         // one-byte array), and is as long as the platform says.
         let start = mem::offset_of!(CF_PLACEHOLDER_STANDARD_INFO, FileIdentity);
-        let len = unsafe { &*self.info }.FileIdentityLength as usize;
+        let len = self.info.FileIdentityLength as usize;
         self.data.get(start..start + len).unwrap_or_default()
     }
 }
@@ -714,14 +732,7 @@ impl Placeholder {
                 unsafe { data.set_len(len) };
                 data.shrink_to_fit();
 
-                Ok(Some(PlaceholderInfo {
-                    info: &unsafe {
-                        data[..mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>()]
-                            .align_to::<CF_PLACEHOLDER_STANDARD_INFO>()
-                    }
-                    .1[0] as *const _,
-                    data,
-                }))
+                Ok(Some(PlaceholderInfo::new(data)))
             }
             Err(e) if e.code() == ERROR_NOT_A_CLOUD_FILE.to_hresult() => Ok(None),
             Err(e) => Err(e),
@@ -747,14 +758,7 @@ impl Placeholder {
         };
 
         match r {
-            Ok(()) => Ok(Some(PlaceholderInfo {
-                info: &unsafe {
-                    data[..mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>()]
-                        .align_to::<CF_PLACEHOLDER_STANDARD_INFO>()
-                }
-                .1[0] as *const _,
-                data,
-            })),
+            Ok(()) => Ok(Some(PlaceholderInfo::new(data))),
             Err(e) if e.code() == ERROR_NOT_A_CLOUD_FILE.to_hresult() => Ok(None),
             Err(e) => Err(e),
         }
@@ -923,6 +927,52 @@ impl TryFrom<Placeholder> for File {
                 )
             }
             .map(|_| unsafe { File::from_raw_handle(mem::transmute(placeholder.handle.handle)) }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn placeholder_info(blob: &[u8]) -> PlaceholderInfo {
+        let mut data = vec![0; mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>() + blob.len()];
+        let file_id_offset = mem::offset_of!(CF_PLACEHOLDER_STANDARD_INFO, FileId);
+        data[file_id_offset..file_id_offset + mem::size_of::<i64>()]
+            .copy_from_slice(&42i64.to_ne_bytes());
+        let length_offset = mem::offset_of!(CF_PLACEHOLDER_STANDARD_INFO, FileIdentityLength);
+        data[length_offset..length_offset + mem::size_of::<u32>()]
+            .copy_from_slice(&(blob.len() as u32).to_ne_bytes());
+        let blob_offset = mem::offset_of!(CF_PLACEHOLDER_STANDARD_INFO, FileIdentity);
+        data[blob_offset..blob_offset + blob.len()].copy_from_slice(blob);
+        PlaceholderInfo::new(data)
+    }
+
+    #[test]
+    fn placeholder_info_clone_owns_metadata_and_identity() {
+        let blob = b"file\0identity";
+        let cloned = {
+            let mut original = placeholder_info(blob);
+            let cloned = original.clone();
+
+            // Detect references to the original buffer before freeing it, so a broken
+            // clone fails deterministically without reading freed memory.
+            original.data.fill(0);
+            assert_eq!(cloned.file_id(), 42);
+            assert_eq!(cloned.blob(), blob);
+            cloned
+        };
+
+        assert_eq!(cloned.file_id(), 42);
+        assert_eq!(cloned.blob(), blob);
+    }
+
+    #[test]
+    fn placeholder_info_preserves_identity_length() {
+        for blob in [vec![], vec![0xab], vec![0xcd; 4096]] {
+            let info = placeholder_info(&blob);
+            assert_eq!(info.file_id(), 42);
+            assert_eq!(info.blob(), blob);
         }
     }
 }
