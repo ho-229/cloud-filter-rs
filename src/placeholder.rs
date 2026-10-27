@@ -765,7 +765,7 @@ impl Placeholder {
         unsafe {
             CfUpdatePlaceholder(
                 self.handle.handle,
-                options.metadata.map(|x| &x.0 as *const _),
+                options.metadata.as_ref().map(|x| &x.0 as *const _),
                 (!options.blob.is_empty()).then_some(options.blob.as_ptr() as *const _),
                 options.blob.len() as _,
                 (options.dehydrate_ranges.is_empty()).then_some(&options.dehydrate_ranges),
