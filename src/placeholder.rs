@@ -704,12 +704,15 @@ impl Placeholder {
 
         match r {
             Ok(()) => {
-                unsafe { data.set_len(info_size as _) };
+                // The platform may report less than the structure's size, as it does for a
+                // folder without an identity blob; the rest of the buffer is zeroes.
+                let len = (info_size as usize).max(mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>());
+                unsafe { data.set_len(len) };
                 data.shrink_to_fit();
 
                 Ok(Some(PlaceholderInfo {
                     info: &unsafe {
-                        data[..=mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>()]
+                        data[..mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>()]
                             .align_to::<CF_PLACEHOLDER_STANDARD_INFO>()
                     }
                     .1[0] as *const _,
@@ -742,7 +745,7 @@ impl Placeholder {
         match r {
             Ok(()) => Ok(Some(PlaceholderInfo {
                 info: &unsafe {
-                    data[..=mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>()]
+                    data[..mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>()]
                         .align_to::<CF_PLACEHOLDER_STANDARD_INFO>()
                 }
                 .1[0] as *const _,
