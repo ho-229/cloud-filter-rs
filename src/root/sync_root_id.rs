@@ -1,6 +1,6 @@
 use std::{
     ffi::{OsStr, OsString},
-    mem::MaybeUninit,
+    mem,
     os::windows::ffi::OsStringExt,
     path::Path,
     ptr,
@@ -272,8 +272,8 @@ impl SecurityId {
                 }
             }
 
-            let mut buffer = Vec::<MaybeUninit<u8>>::with_capacity(token_size as usize);
-            buffer.set_len(token_size as usize);
+            // TOKEN_USER and the trailing SID require native alignment.
+            let mut buffer = vec![0usize; (token_size as usize).div_ceil(mem::size_of::<usize>())];
 
             GetTokenInformation(
                 Self::CURRENT_THREAD_EFFECTIVE_TOKEN,
@@ -283,7 +283,10 @@ impl SecurityId {
                 &mut token_size,
             )?;
 
-            let token_user = &*(buffer.as_ptr() as *const TOKEN_USER);
+            if (token_size as usize) < mem::size_of::<TOKEN_USER>() {
+                return Err(Foundation::E_UNEXPECTED.into());
+            }
+            let token_user = (buffer.as_ptr() as *const TOKEN_USER).read_unaligned();
             let mut sid = PWSTR(ptr::null_mut());
             ConvertSidToStringSidW(token_user.User.Sid, &mut sid as *mut _)?;
 

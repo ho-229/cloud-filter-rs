@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     mem,
-    ops::{Bound, RangeBounds},
+    ops::RangeBounds,
     os::windows::{io::AsRawHandle, prelude::RawHandle},
 };
 
@@ -16,7 +16,7 @@ use windows::{
     },
 };
 
-use crate::sealed::Sealed;
+use crate::{sealed::Sealed, utility};
 
 /// An API extension to [File][std::fs::File].
 pub trait FileExt: AsRawHandle + Sealed {
@@ -45,24 +45,16 @@ fn dehydrate<T: RangeBounds<u64>>(
     range: T,
     background: bool,
 ) -> core::Result<()> {
+    let (offset, length) = utility::checked_range(range)?;
     unsafe {
         CfDehydratePlaceholder(
             HANDLE(handle),
-            match range.start_bound() {
-                Bound::Included(x) => *x as i64,
-                Bound::Excluded(x) => x.saturating_add(1) as i64,
-                Bound::Unbounded => 0,
-            },
-            match range.end_bound() {
-                Bound::Included(x) => *x as i64,
-                Bound::Excluded(x) => x.saturating_sub(1) as i64,
-                // This behavior is documented in CfDehydratePlaceholder
-                Bound::Unbounded => -1,
-            },
+            offset,
+            length,
             if background {
-                CloudFilters::CF_DEHYDRATE_FLAG_NONE
-            } else {
                 CloudFilters::CF_DEHYDRATE_FLAG_BACKGROUND
+            } else {
+                CloudFilters::CF_DEHYDRATE_FLAG_NONE
             },
             None,
         )

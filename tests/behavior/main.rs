@@ -3,11 +3,22 @@ use std::process::ExitCode;
 use libtest_mimic::{run, Arguments, Trial};
 
 mod async_filter;
+mod placeholder;
 mod sync_filter;
 
 fn main() -> ExitCode {
     let args = Arguments::from_args();
-    let tests = vec![Trial::test("sync_filter", sync_filter::test)];
+    let tests = vec![
+        Trial::test(
+            "file_round_trip",
+            placeholder::file_round_trip_transfers_ownership,
+        ),
+        Trial::test(
+            "placeholder_handles",
+            placeholder::placeholder_outputs_and_protected_handles_remain_valid,
+        ),
+        Trial::test("sync_filter", sync_filter::test),
+    ];
 
     let conclusion = run(&args, tests);
     if conclusion.has_failed() {
