@@ -5,7 +5,6 @@ use std::{
     ops::{Bound, Range, RangeBounds},
     os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle},
     path::Path,
-    ptr,
 };
 
 use widestring::U16CString;
@@ -643,7 +642,7 @@ impl Placeholder {
                     false => CloudFilters::CF_IN_SYNC_STATE_NOT_IN_SYNC,
                 },
                 CloudFilters::CF_SET_IN_SYNC_FLAG_NONE,
-                usn.into().map(|x| ptr::read(x) as *mut _),
+                usn.into().map(|x| x as *mut _),
             )
         }?;
 
@@ -677,7 +676,7 @@ impl Placeholder {
                 (!options.blob.is_empty()).then_some(options.blob.as_ptr() as *const _),
                 options.blob.len() as _,
                 options.flags,
-                usn.into().map(|x| ptr::read(x) as *mut _),
+                usn.into().map(|x| x as *mut _),
                 None,
             )
         }?;
@@ -768,7 +767,7 @@ impl Placeholder {
                 options.metadata.map(|x| &x.0 as *const _),
                 (!options.blob.is_empty()).then_some(options.blob.as_ptr() as *const _),
                 options.blob.len() as _,
-                (options.dehydrate_ranges.is_empty()).then_some(&options.dehydrate_ranges),
+                (!options.dehydrate_ranges.is_empty()).then_some(&options.dehydrate_ranges),
                 options.flags,
                 usn.into().map(|u| u as *mut _),
                 None,
@@ -865,19 +864,22 @@ impl Placeholder {
     /// See also [CfHydratePlaceholder](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfhydrateplaceholder)
     /// and [discussion](https://docs.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfhydrateplaceholder#remarks).
     pub fn hydrate(&mut self, range: impl RangeBounds<u64>) -> core::Result<()> {
+        let start = match range.start_bound() {
+            Bound::Included(x) => *x,
+            Bound::Excluded(x) => x + 1,
+            Bound::Unbounded => 0,
+        };
+        // CfHydratePlaceholder takes a length, -1 for the rest of the file.
+        let length: i64 = match range.end_bound() {
+            Bound::Included(x) => (x + 1 - start).try_into().unwrap(),
+            Bound::Excluded(x) => (x - start).try_into().unwrap(),
+            Bound::Unbounded => -1,
+        };
         unsafe {
             CfHydratePlaceholder(
                 self.handle.handle,
-                match range.start_bound() {
-                    Bound::Included(x) => (*x).try_into().unwrap(),
-                    Bound::Excluded(x) => (x + 1).try_into().unwrap(),
-                    Bound::Unbounded => 0,
-                },
-                match range.end_bound() {
-                    Bound::Included(x) => (*x).try_into().unwrap(),
-                    Bound::Excluded(x) => (x - 1).try_into().unwrap(),
-                    Bound::Unbounded => -1,
-                },
+                start.try_into().unwrap(),
+                length,
                 CloudFilters::CF_HYDRATE_FLAG_NONE,
                 None,
             )

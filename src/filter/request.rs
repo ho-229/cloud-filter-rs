@@ -1,6 +1,6 @@
 use std::{ffi::OsString, path::PathBuf, slice};
 
-use widestring::{u16cstr, U16CStr};
+use widestring::U16CStr;
 use windows::Win32::Storage::CloudFilters::{CF_CALLBACK_INFO, CF_PROCESS_INFO};
 
 pub type RawConnectionKey = i64;
@@ -34,8 +34,20 @@ impl Request {
     }
 
     /// Information of the user process that triggered the callback.
+    ///
+    /// The platform gives none for some callbacks, such as a cancelled fetch: then every field
+    /// is empty, zero or [None][std::option::Option::None]. Use [Request::try_process] to tell
+    /// that apart.
     pub fn process(&self) -> Process {
-        Process(unsafe { *self.0.ProcessInfo })
+        self.try_process()
+            .unwrap_or_else(|| Process(CF_PROCESS_INFO::default()))
+    }
+
+    /// Information of the user process that triggered the callback, or
+    /// [None][std::option::Option::None] if the platform gave none, as it does for some
+    /// callbacks, such as a cancelled fetch.
+    pub fn try_process(&self) -> Option<Process> {
+        (!self.0.ProcessInfo.is_null()).then(|| Process(unsafe { *self.0.ProcessInfo }))
     }
 
     /// The NTFS file ID of the sync root folder under which the placeholder being operated on
@@ -148,7 +160,7 @@ pub struct Process(CF_PROCESS_INFO);
 impl Process {
     /// The application's package name.
     pub fn name(&self) -> OsString {
-        unsafe { U16CStr::from_ptr_str(self.0.PackageName.0) }.to_os_string()
+        wide_string(self.0.PackageName.0).unwrap_or_default()
     }
 
     /// The ID of the user process.
@@ -167,7 +179,7 @@ impl Process {
 
     /// The application's ID.
     pub fn application_id(&self) -> OsString {
-        unsafe { U16CStr::from_ptr_str(self.0.ApplicationId.0) }.to_os_string()
+        wide_string(self.0.ApplicationId.0).unwrap_or_default()
     }
 
     /// The exact command used to initialize the user process.
@@ -176,8 +188,7 @@ impl Process {
     ///
     /// [Process::command_line] is valid in versions 1803 and later.
     pub fn command_line(&self) -> Option<OsString> {
-        let cmd = unsafe { U16CStr::from_ptr_str(self.0.ImagePath.0) };
-        (cmd != u16cstr!("UNKNOWN")).then(|| cmd.to_os_string())
+        wide_string(self.0.ImagePath.0).filter(|cmd| cmd != "UNKNOWN")
     }
 
     // TODO: Could be optimized
@@ -186,9 +197,15 @@ impl Process {
     /// This function returns [None][std::option::Option::None] when the operating system failed to
     /// retrieve the path.
     pub fn path(&self) -> Option<PathBuf> {
-        let path = unsafe { U16CStr::from_ptr_str(self.0.ImagePath.0) };
-        (path != u16cstr!("UNKNOWN")).then(|| PathBuf::from(path.to_os_string()))
+        wide_string(self.0.ImagePath.0)
+            .filter(|path| path != "UNKNOWN")
+            .map(PathBuf::from)
     }
+}
+
+/// The NUL-terminated wide string at `ptr`, or [None][std::option::Option::None] if it is null.
+fn wide_string(ptr: *const u16) -> Option<OsString> {
+    (!ptr.is_null()).then(|| unsafe { U16CStr::from_ptr_str(ptr) }.to_os_string())
 }
 
 impl std::fmt::Debug for Process {
