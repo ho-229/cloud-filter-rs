@@ -1,6 +1,5 @@
 use std::{
     env,
-    ffi::OsStr,
     fs::File,
     io::{Read, Seek, SeekFrom},
     net::TcpStream,
@@ -138,7 +137,9 @@ impl SyncFilter for Filter {
         ticket: ticket::FetchData,
         info: info::FetchData,
     ) -> CResult<()> {
-        let path = Path::new(unsafe { OsStr::from_encoded_bytes_unchecked(request.file_blob()) });
+        let path = Path::new(
+            std::str::from_utf8(request.file_blob()).map_err(|_| CloudErrorKind::InvalidRequest)?,
+        );
 
         let range = info.required_file_range();
         let end = range.end;
@@ -202,7 +203,9 @@ impl SyncFilter for Filter {
             return Ok(());
         }
         // Server path stored in fetch_placeholders
-        let path = Path::new(unsafe { OsStr::from_encoded_bytes_unchecked(request.file_blob()) });
+        let path = Path::new(
+            std::str::from_utf8(request.file_blob()).map_err(|_| CloudErrorKind::InvalidRequest)?,
+        );
         match info.is_directory() {
             true => self
                 .remove_remote_dir_all(path)
