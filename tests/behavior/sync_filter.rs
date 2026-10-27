@@ -1,5 +1,9 @@
 use core::str;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::Path,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use anyhow::Context;
 use cloud_filter::{
@@ -8,15 +12,17 @@ use cloud_filter::{
     metadata::Metadata,
     placeholder_file::PlaceholderFile,
     root::{
-        Connection, HydrationType, PopulationType, SecurityId, Session, SyncRootId,
-        SyncRootIdBuilder, SyncRootInfo,
+        Connection, HydrationPolicy, HydrationType, PopulationType, SecurityId, Session,
+        SyncRootId, SyncRootIdBuilder, SyncRootInfo,
     },
-    utility::WriteAt,
+    utility::{ReadAt, WriteAt},
 };
 use libtest_mimic::Failed;
 use nt_time::FileTime;
 
 const ROOT_PATH: &str = "C:\\sync_filter_test";
+
+static VALIDATED: AtomicBool = AtomicBool::new(false);
 
 struct MemFilter;
 
@@ -27,10 +33,11 @@ impl SyncFilter for MemFilter {
         ticket: ticket::FetchData,
         info: info::FetchData,
     ) -> CResult<()> {
-        let path = unsafe { str::from_utf8_unchecked(request.file_blob()) };
+        let path =
+            str::from_utf8(request.file_blob()).map_err(|_| CloudErrorKind::InvalidRequest)?;
         println!("fetch_data: path: {path:?}");
 
-        let content = match path.as_ref() {
+        let content = match path {
             "test1.txt" | "dir1\\test2.txt" => path,
             _ => Err(CloudErrorKind::InvalidRequest)?,
         };
@@ -42,6 +49,26 @@ impl SyncFilter for MemFilter {
         ticket.write_at(content.as_bytes(), 0).unwrap();
 
         Ok(())
+    }
+
+    fn validate_data(
+        &self,
+        request: Request,
+        ticket: ticket::ValidateData,
+        info: info::ValidateData,
+    ) -> CResult<()> {
+        let range = info.file_range();
+        let mut retrieved = vec![0; request.file_blob().len()];
+        let returned = ticket
+            .read_at(&mut retrieved, range.start)
+            .map_err(|_| CloudErrorKind::InvalidRequest)?;
+        if returned != retrieved.len() as u64 || retrieved != request.file_blob() {
+            return Err(CloudErrorKind::InvalidRequest);
+        }
+        VALIDATED.store(true, Ordering::SeqCst);
+        ticket
+            .pass(range)
+            .map_err(|_| CloudErrorKind::InvalidRequest)
     }
 
     fn fetch_placeholders(
@@ -101,6 +128,7 @@ fn init() -> anyhow::Result<(SyncRootId, Connection<MemFilter>)> {
                 SyncRootInfo::default()
                     .with_display_name("Sync Filter Test")
                     .with_hydration_type(HydrationType::Full)
+                    .with_hydration_policy(HydrationPolicy::ValidationRequired)
                     .with_population_type(PopulationType::Full)
                     .with_icon("%SystemRoot%\\system32\\charmap.exe,0")
                     .with_version("1.0.0")
@@ -128,6 +156,10 @@ pub fn test() -> Result<(), Failed> {
 
     crate::test_list_folders(ROOT_PATH);
     crate::test_read_file(ROOT_PATH);
+    assert!(
+        VALIDATED.load(Ordering::SeqCst),
+        "native validation must exercise ReadAt"
+    );
     crate::test_update_metadata(ROOT_PATH);
 
     drop(connection);

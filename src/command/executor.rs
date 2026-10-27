@@ -16,9 +16,13 @@ use crate::{
 
 /// Allows a command to fail with a specified error.
 pub trait Fallible: Command {
+    /// Information needed to fail this operation, such as the requested byte range.
+    type Context;
+
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result>;
 }
@@ -41,15 +45,15 @@ pub trait Command: Sized {
     unsafe fn result(info: CF_OPERATION_PARAMETERS_0) -> Self::Result;
 
     /// Creates and returns the union.
-    fn build(&self) -> CF_OPERATION_PARAMETERS_0;
+    fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0>;
 
     /// Executes the command to the platform.
     fn execute(
-        &self,
+        &mut self,
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
     ) -> core::Result<Self::Result> {
-        execute::<Self>(self.build(), connection_key, transfer_key)
+        execute::<Self>(self.build()?, connection_key, transfer_key)
     }
 }
 
@@ -58,6 +62,11 @@ pub fn execute<C: Command>(
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
 ) -> core::Result<C::Result> {
+    let mut parameters = CF_OPERATION_PARAMETERS {
+        ParamSize: (mem::size_of::<C::Field>() + offset_of!(CF_OPERATION_PARAMETERS, Anonymous))
+            as u32,
+        Anonymous: info,
+    };
     unsafe {
         CfExecute(
             &CF_OPERATION_INFO {
@@ -70,13 +79,8 @@ pub fn execute<C: Command>(
                 // https://docs.microsoft.com/en-us/answers/questions/749979/what-is-a-requestkey-cfapi.html
                 RequestKey: CloudFilters::CF_REQUEST_KEY_DEFAULT as i64,
             } as *const _,
-            &mut CF_OPERATION_PARAMETERS {
-                ParamSize: (mem::size_of::<C::Field>()
-                    + offset_of!(CF_OPERATION_PARAMETERS, Anonymous))
-                    as u32,
-                Anonymous: info,
-            } as *mut _,
-        )
-        .and(Ok(C::result(info)))
+            &mut parameters,
+        )?;
+        Ok(C::result(parameters.Anonymous))
     }
 }

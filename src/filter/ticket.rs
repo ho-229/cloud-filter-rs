@@ -6,7 +6,7 @@ use windows::{
 };
 
 use crate::{
-    command::{self, Command},
+    command::{self, Command, Fallible},
     error::CloudErrorKind,
     filter::{RawConnectionKey, RawTransferKey},
     placeholder_file::PlaceholderFile,
@@ -40,7 +40,7 @@ impl FetchData {
     /// than waiting for the platform's timeout. Fails if the fetch was already cancelled or
     /// timed out.
     pub fn fail(&self, error_kind: CloudErrorKind) -> core::Result<()> {
-        command::Write::fail_range(
+        command::Write::fail(
             self.connection_key,
             self.transfer_key,
             self.range.clone(),

@@ -27,10 +27,11 @@ impl Filter for MemFilter {
         ticket: ticket::FetchData,
         info: info::FetchData,
     ) -> CResult<()> {
-        let path = unsafe { str::from_utf8_unchecked(request.file_blob()) };
+        let path =
+            str::from_utf8(request.file_blob()).map_err(|_| CloudErrorKind::InvalidRequest)?;
         println!("fetch_data: path: {path:?}");
 
-        let content = match path.as_ref() {
+        let content = match path {
             "test1.txt" | "dir1\\test2.txt" => path,
             _ => Err(CloudErrorKind::InvalidRequest)?,
         };

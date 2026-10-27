@@ -1,7 +1,7 @@
 use std::{ffi::OsString, fmt::Debug, ops::Range, path::PathBuf};
 
+use super::request::wide_string;
 use nt_time::FileTime;
-use widestring::U16CStr;
 use windows::Win32::Storage::CloudFilters::{
     self, CF_CALLBACK_DEHYDRATION_REASON, CF_CALLBACK_PARAMETERS_0_0, CF_CALLBACK_PARAMETERS_0_1,
     CF_CALLBACK_PARAMETERS_0_10, CF_CALLBACK_PARAMETERS_0_11, CF_CALLBACK_PARAMETERS_0_2,
@@ -124,15 +124,19 @@ impl Debug for ValidateData {
 
 /// Information for the [SyncFilter::fetch_placeholders][crate::filter::SyncFilter::fetch_placeholders]
 /// callback.
-pub struct FetchPlaceholders(pub(crate) CF_CALLBACK_PARAMETERS_0_7);
+pub struct FetchPlaceholders(OsString);
 
 impl FetchPlaceholders {
+    pub(crate) unsafe fn new(info: CF_CALLBACK_PARAMETERS_0_7) -> Self {
+        Self(wide_string(info.Pattern.0).unwrap_or_default())
+    }
+
     /// A glob pattern specifying the files that should be fetched.
     ///
     /// This field is completely optional and does not have to be respected.
     #[cfg(feature = "globs")]
     pub fn pattern(&self) -> Result<globset::Glob, globset::Error> {
-        let pattern = unsafe { U16CStr::from_ptr_str(self.0.Pattern.0) }.to_string_lossy();
+        let pattern = self.0.to_string_lossy();
         globset::Glob::new(&pattern)
     }
 
@@ -141,7 +145,7 @@ impl FetchPlaceholders {
     /// This field is completely optional and does not have to be respected.
     #[cfg(not(feature = "globs"))]
     pub fn pattern(&self) -> String {
-        unsafe { U16CStr::from_ptr_str(self.0.Pattern.0) }.to_string_lossy()
+        self.0.to_string_lossy().into_owned()
     }
 }
 
@@ -310,29 +314,39 @@ impl Debug for Delete {
 pub struct Deleted(pub(crate) CF_CALLBACK_PARAMETERS_0_4);
 
 /// Information for the [SyncFilter::rename][crate::filter::SyncFilter::rename] callback.
-pub struct Rename(pub(crate) CF_CALLBACK_PARAMETERS_0_10, pub(crate) OsString);
+pub struct Rename {
+    flags: CloudFilters::CF_CALLBACK_RENAME_FLAGS,
+    target_path: PathBuf,
+}
 
 impl Rename {
+    pub(crate) unsafe fn new(info: CF_CALLBACK_PARAMETERS_0_10, volume: OsString) -> Self {
+        let mut target_path = PathBuf::from(volume);
+        target_path.push(wide_string(info.TargetPath.0).unwrap_or_default());
+        Self {
+            flags: info.Flags,
+            target_path,
+        }
+    }
+
     /// Whether or not the placeholder being renamed is a directory.
     pub fn is_directory(&self) -> bool {
-        (self.0.Flags & CloudFilters::CF_CALLBACK_RENAME_FLAG_IS_DIRECTORY).0 != 0
+        (self.flags & CloudFilters::CF_CALLBACK_RENAME_FLAG_IS_DIRECTORY).0 != 0
     }
 
     /// Whether or not the placeholder was originally in the sync root.
     pub fn source_in_scope(&self) -> bool {
-        (self.0.Flags & CloudFilters::CF_CALLBACK_RENAME_FLAG_SOURCE_IN_SCOPE).0 != 0
+        (self.flags & CloudFilters::CF_CALLBACK_RENAME_FLAG_SOURCE_IN_SCOPE).0 != 0
     }
 
     /// Whether or not the placeholder is being moved inside the sync root.
     pub fn target_in_scope(&self) -> bool {
-        (self.0.Flags & CloudFilters::CF_CALLBACK_RENAME_FLAG_TARGET_IN_SCOPE).0 != 0
+        (self.flags & CloudFilters::CF_CALLBACK_RENAME_FLAG_TARGET_IN_SCOPE).0 != 0
     }
 
     /// The full path the placeholder is being moved to.
     pub fn target_path(&self) -> PathBuf {
-        let mut path = PathBuf::from(&self.1);
-        path.push(unsafe { U16CStr::from_ptr_str(self.0.TargetPath.0) }.to_os_string());
-        path
+        self.target_path.clone()
     }
 }
 
@@ -348,14 +362,18 @@ impl Debug for Rename {
 }
 
 /// Information for the [SyncFilter::renamed][crate::filter::SyncFilter::renamed] callback.
-pub struct Renamed(pub(crate) CF_CALLBACK_PARAMETERS_0_9, pub(crate) OsString);
+pub struct Renamed(PathBuf);
 
 impl Renamed {
+    pub(crate) unsafe fn new(info: CF_CALLBACK_PARAMETERS_0_9, volume: OsString) -> Self {
+        let mut path = PathBuf::from(volume);
+        path.push(wide_string(info.SourcePath.0).unwrap_or_default());
+        Self(path)
+    }
+
     /// The full path the placeholder has been moved from.
     pub fn source_path(&self) -> PathBuf {
-        let mut path = PathBuf::from(&self.1);
-        path.push(unsafe { U16CStr::from_ptr_str(self.0.SourcePath.0) }.to_os_string());
-        path
+        self.0.clone()
     }
 }
 
@@ -393,5 +411,45 @@ impl DehydrationReason {
             CloudFilters::CF_CALLBACK_DEHYDRATION_REASON_SYSTEM_OS_UPGRADE => Some(Self::OsUpgrade),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use widestring::U16CString;
+    use windows::core::PCWSTR;
+
+    #[test]
+    fn callback_paths_and_pattern_survive_native_buffers() {
+        let (fetch, rename, renamed) = {
+            let pattern = U16CString::from_str("*.txt").unwrap();
+            let path = U16CString::from_str(r"\root\file.txt").unwrap();
+            unsafe {
+                (
+                    FetchPlaceholders::new(CF_CALLBACK_PARAMETERS_0_7 {
+                        Pattern: PCWSTR(pattern.as_ptr()),
+                        ..Default::default()
+                    }),
+                    Rename::new(
+                        CF_CALLBACK_PARAMETERS_0_10 {
+                            TargetPath: PCWSTR(path.as_ptr()),
+                            ..Default::default()
+                        },
+                        "C:".into(),
+                    ),
+                    Renamed::new(
+                        CF_CALLBACK_PARAMETERS_0_9 {
+                            SourcePath: PCWSTR(path.as_ptr()),
+                            ..Default::default()
+                        },
+                        "C:".into(),
+                    ),
+                )
+            }
+        };
+        assert_eq!(fetch.0, "*.txt");
+        assert_eq!(rename.target_path(), PathBuf::from(r"C:\root\file.txt"));
+        assert_eq!(renamed.source_path(), PathBuf::from(r"C:\root\file.txt"));
     }
 }

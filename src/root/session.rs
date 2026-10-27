@@ -4,7 +4,7 @@ use std::{
     os::windows::{fs::OpenOptionsExt, io::AsRawHandle},
     path::{Path, PathBuf},
     sync::{
-        mpsc::{self, Sender, TryRecvError},
+        mpsc::{self, Receiver, TryRecvError},
         Arc, Weak,
     },
     thread::{self, JoinHandle},
@@ -62,6 +62,7 @@ impl Session {
     {
         let filter = Arc::new(filter);
         let callbacks = filter::callbacks::<F>();
+        let context = Box::new(Arc::downgrade(&filter));
         let key = unsafe {
             CfConnectSyncRoot(
                 PCWSTR(
@@ -70,9 +71,8 @@ impl Session {
                         .as_ptr(),
                 ),
                 callbacks.as_ptr(),
-                // create a weak arc so that it could be upgraded when it's being used and when the
-                // connection is closed, the filter could be freed
-                Some(Weak::into_raw(Arc::downgrade(&filter)) as *const _),
+                // The boxed Weak slot stays at a stable address until disconnect completes.
+                Some((&*context as *const Weak<F>).cast()),
                 // This is enabled by default to remove the Option requirement around various fields of the
                 // [Request][crate::Request] struct
                 self.0
@@ -81,16 +81,14 @@ impl Session {
             )
         }?;
 
-        let (cancel_token, join_handle) =
-            spawn_root_watcher(path.as_ref().to_path_buf(), filter.clone());
-
-        Ok(Connection::new(
-            key.0,
-            cancel_token,
-            join_handle,
-            callbacks,
-            filter,
-        ))
+        let (cancel_token, cancel) = mpsc::channel();
+        // Own the native connection before spawning: if spawn panics, Drop disconnects
+        // before freeing the callback context.
+        let mut connection =
+            Connection::new(key.0, cancel_token, callbacks, filter.clone(), context);
+        let worker = spawn_root_watcher(path.as_ref().to_path_buf(), filter, cancel);
+        connection.set_worker(worker);
+        Ok(connection)
     }
 
     /// Initiates a connection to the sync root with the given [Filter].
@@ -118,9 +116,9 @@ impl Default for Session {
 fn spawn_root_watcher<T: SyncFilter + 'static>(
     path: PathBuf,
     filter: Arc<T>,
-) -> (Sender<()>, JoinHandle<()>) {
-    let (tx, rx) = mpsc::channel();
-    let handle = thread::spawn(move || {
+    rx: Receiver<()>,
+) -> JoinHandle<()> {
+    thread::spawn(move || {
         const CHANGE_BUF_SIZE: usize = 1024;
 
         let sync_root = OpenOptions::new()
@@ -204,7 +202,5 @@ fn spawn_root_watcher<T: SyncFilter + 'static>(
                 break;
             }
         }
-    });
-
-    (tx, handle)
+    })
 }
