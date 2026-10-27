@@ -385,7 +385,11 @@ impl PlaceholderInfo {
     }
 
     pub fn blob(&self) -> &[u8] {
-        &self.data[mem::size_of::<CF_PLACEHOLDER_STANDARD_INFO>()..]
+        // The identity starts at its field, inside the structure's size (it is declared as a
+        // one-byte array), and is as long as the platform says.
+        let start = mem::offset_of!(CF_PLACEHOLDER_STANDARD_INFO, FileIdentity);
+        let len = unsafe { &*self.info }.FileIdentityLength as usize;
+        self.data.get(start..start + len).unwrap_or_default()
     }
 }
 
