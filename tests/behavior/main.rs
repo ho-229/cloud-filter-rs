@@ -31,6 +31,37 @@ fn test_list_folders(root: &str) {
     );
 }
 
+fn test_update_metadata(root: &str) {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+
+    use cloud_filter::{
+        metadata::Metadata,
+        placeholder::{Placeholder, UpdateOptions},
+    };
+    use nt_time::FileTime;
+
+    let path = format!("{root}\\test1.txt");
+    let written = FileTime::new(133_000_000_000_000_000);
+    let file = std::fs::OpenOptions::new()
+        .access_mode(0)
+        .share_mode(0)
+        .open(&path)
+        .expect("open placeholder");
+    Placeholder::from(file)
+        .update(
+            UpdateOptions::default()
+                .metadata(Metadata::file().written(written).size(42))
+                .mark_in_sync()
+                .dehydrate(),
+            None,
+        )
+        .expect("update placeholder");
+
+    let metadata = std::fs::metadata(&path).expect("metadata");
+    assert_eq!(metadata.len(), 42);
+    assert_eq!(metadata.last_write_time(), written.to_raw());
+}
+
 fn test_read_file(root: &str) {
     for relative in ["test1.txt", "dir1\\test2.txt"] {
         let path = format!("{root}\\{relative}");

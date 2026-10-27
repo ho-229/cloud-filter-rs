@@ -128,6 +128,7 @@ pub fn test() -> Result<(), Failed> {
 
     crate::test_list_folders(ROOT_PATH);
     crate::test_read_file(ROOT_PATH);
+    crate::test_update_metadata(ROOT_PATH);
 
     drop(connection);
     sync_root_id.unregister().context("unregister")?;
