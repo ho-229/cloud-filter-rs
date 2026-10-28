@@ -10,7 +10,7 @@ use cloud_filter::{
     error::{CResult, CloudErrorKind},
     filter::{info, ticket, Request, SyncFilter},
     metadata::Metadata,
-    placeholder_file::PlaceholderFile,
+    placeholder_create_info::PlaceholderCreateInfo,
     root::{
         Connection, HydrationPolicy, HydrationType, PopulationType, SecurityId, Session,
         SyncRootId, SyncRootIdBuilder, SyncRootInfo,
@@ -84,11 +84,11 @@ impl SyncFilter for MemFilter {
         let now = FileTime::now();
         let mut placeholders = match relative_path.to_string_lossy().as_ref() {
             "" => vec![
-                PlaceholderFile::new("dir1")
+                PlaceholderCreateInfo::new("dir1")
                     .mark_in_sync()
                     .metadata(Metadata::directory().created(now).written(now).size(0))
                     .blob("dir1".into()),
-                PlaceholderFile::new("test1.txt")
+                PlaceholderCreateInfo::new("test1.txt")
                     .has_no_children()
                     .mark_in_sync()
                     .metadata(
@@ -99,7 +99,7 @@ impl SyncFilter for MemFilter {
                     )
                     .blob("test1.txt".into()),
             ],
-            "dir1" => vec![PlaceholderFile::new("test2.txt")
+            "dir1" => vec![PlaceholderCreateInfo::new("test2.txt")
                 .has_no_children()
                 .mark_in_sync()
                 .metadata(

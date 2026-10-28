@@ -12,7 +12,7 @@ use cloud_filter::{
     filter::{info, ticket, Request, SyncFilter},
     metadata::Metadata,
     placeholder::{ConvertOptions, Placeholder},
-    placeholder_file::PlaceholderFile,
+    placeholder_create_info::PlaceholderCreateInfo,
     root::{HydrationType, PopulationType, SecurityId, Session, SyncRootIdBuilder, SyncRootInfo},
     utility::{FileTime, WriteAt},
 };
@@ -190,7 +190,7 @@ impl SyncFilter for CloudMirror {
                         .ok()
                     })
                     .unwrap_or_default();
-                PlaceholderFile::new(&relative_path)
+                PlaceholderCreateInfo::new(&relative_path)
                     .metadata(
                         match stat.is_dir() {
                             true => Metadata::directory(),

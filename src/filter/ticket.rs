@@ -9,7 +9,7 @@ use crate::{
     command::{self, Command, Fallible},
     error::CloudErrorKind,
     filter::{RawConnectionKey, RawTransferKey},
-    placeholder_file::PlaceholderFile,
+    placeholder_create_info::PlaceholderCreateInfo,
     sealed, utility,
 };
 
@@ -165,7 +165,10 @@ impl FetchPlaceholders {
     /// Creates a list of placeholder files/directorys on the file system.
     ///
     /// The value returned is the final [Usn][crate::usn::Usn] (and if they succeeded) after each placeholder is created.
-    pub fn pass_with_placeholder(&self, placeholders: &mut [PlaceholderFile]) -> core::Result<()> {
+    pub fn pass_with_placeholder(
+        &self,
+        placeholders: &mut [PlaceholderCreateInfo],
+    ) -> core::Result<()> {
         command::CreatePlaceholders {
             total: placeholders.len() as _,
             placeholders,

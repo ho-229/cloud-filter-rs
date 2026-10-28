@@ -14,10 +14,10 @@ use crate::{metadata::Metadata, sealed, usn::Usn};
 /// A builder for creating new placeholder files/directories.
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct PlaceholderFile(CF_PLACEHOLDER_CREATE_INFO);
+pub struct PlaceholderCreateInfo(CF_PLACEHOLDER_CREATE_INFO);
 
-impl PlaceholderFile {
-    /// Creates a new [PlaceholderFile].
+impl PlaceholderCreateInfo {
+    /// Creates a new [PlaceholderCreateInfo].
     pub fn new(relative_path: impl AsRef<Path>) -> Self {
         Self(CF_PLACEHOLDER_CREATE_INFO {
             RelativeFileName: PCWSTR(
@@ -31,7 +31,7 @@ impl PlaceholderFile {
         })
     }
 
-    /// Marks this [PlaceholderFile] as having no child placeholders on
+    /// Marks this [PlaceholderCreateInfo] as having no child placeholders on
     /// creation.
     ///
     /// Only applicable to placeholder directories.
@@ -64,7 +64,7 @@ impl PlaceholderFile {
         self
     }
 
-    /// The metadata for the [PlaceholderFile].
+    /// The metadata for the [PlaceholderCreateInfo].
     pub fn metadata(mut self, metadata: Metadata) -> Self {
         self.0.FsMetadata = metadata.0;
         self
@@ -136,7 +136,7 @@ impl PlaceholderFile {
     }
 }
 
-impl Drop for PlaceholderFile {
+impl Drop for PlaceholderCreateInfo {
     fn drop(&mut self) {
         // Safety: `self.0.RelativeFileName.0` is a valid pointer to a valid UTF-16 string
         drop(unsafe { U16CString::from_raw(self.0.RelativeFileName.0 as *mut u16) });
@@ -158,7 +158,7 @@ pub trait BatchCreate: sealed::Sealed {
     fn create<P: AsRef<Path>>(&mut self, path: P) -> core::Result<()>;
 }
 
-impl BatchCreate for [PlaceholderFile] {
+impl BatchCreate for [PlaceholderCreateInfo] {
     fn create<P: AsRef<Path>>(&mut self, path: P) -> core::Result<()> {
         unsafe {
             CfCreatePlaceholders(
@@ -171,4 +171,4 @@ impl BatchCreate for [PlaceholderFile] {
     }
 }
 
-impl sealed::Sealed for [PlaceholderFile] {}
+impl sealed::Sealed for [PlaceholderCreateInfo] {}

@@ -10,7 +10,7 @@ use anyhow::Context;
 use cloud_filter::{
     metadata::Metadata,
     placeholder::Placeholder,
-    placeholder_file::{BatchCreate, PlaceholderFile},
+    placeholder_create_info::{BatchCreate, PlaceholderCreateInfo},
     root::{
         HydrationType, PopulationType, SecurityId, SyncRootId, SyncRootIdBuilder, SyncRootInfo,
     },
@@ -111,7 +111,7 @@ pub fn placeholder_outputs_and_protected_handles_remain_valid() -> Result<(), Fa
         )
         .context("register temporary root")?;
 
-    let usn = PlaceholderFile::new("owned.txt")
+    let usn = PlaceholderCreateInfo::new("owned.txt")
         .metadata(Metadata::file().size(0))
         .blob(b"old".to_vec())
         .blob(Vec::new())
@@ -119,13 +119,13 @@ pub fn placeholder_outputs_and_protected_handles_remain_valid() -> Result<(), Fa
         .create(directory.path())
         .context("create single placeholder")?;
     assert!(usn > 0, "return the USN written by Windows");
-    let mut batch = [PlaceholderFile::new("batch.txt")
+    let mut batch = [PlaceholderCreateInfo::new("batch.txt")
         .metadata(Metadata::file().size(0))
         .blob(b"batch".to_vec())];
     batch.create(directory.path()).context("create batch")?;
     assert!(batch[0].result()? > 0);
 
-    PlaceholderFile::new("offline.bin")
+    PlaceholderCreateInfo::new("offline.bin")
         .metadata(Metadata::file().size(8192))
         .blob(b"offline".to_vec())
         .mark_in_sync()

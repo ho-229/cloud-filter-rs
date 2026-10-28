@@ -18,7 +18,7 @@ use crate::{
     error::CloudErrorKind,
     filter::{RawConnectionKey, RawTransferKey},
     metadata::Metadata,
-    placeholder_file::PlaceholderFile,
+    placeholder_create_info::PlaceholderCreateInfo,
     utility,
 };
 
@@ -160,7 +160,7 @@ impl Command for Update<'_> {
 #[derive(Debug)]
 pub struct CreatePlaceholders<'a> {
     /// The placeholders to create.
-    pub placeholders: &'a mut [PlaceholderFile],
+    pub placeholders: &'a mut [PlaceholderCreateInfo],
     /// The total amount of placeholders that are a child of the current directory.
     pub total: u64,
 }

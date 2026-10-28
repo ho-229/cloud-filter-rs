@@ -11,8 +11,8 @@ pub mod filter;
 pub mod metadata;
 /// Contains the [Placeholder][crate::placeholder::Placeholder] struct.
 pub mod placeholder;
-/// Contains the [PlaceholderFile][crate::placeholder_file::PlaceholderFile] struct.
-pub mod placeholder_file;
+/// Contains the [PlaceholderCreateInfo][crate::placeholder_create_info::PlaceholderCreateInfo] struct.
+pub mod placeholder_create_info;
 /// Contains the sync root structs.
 pub mod root;
 pub mod usn;
