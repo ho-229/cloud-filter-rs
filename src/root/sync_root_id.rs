@@ -135,6 +135,10 @@ impl SyncRootId {
     }
 
     /// Whether or not the [SyncRootId] has already been registered.
+    ///
+    /// This queries the WinRT/Shell registration. A `false` result means WinRT
+    /// returned `ERROR_NOT_FOUND`; it does not independently check the native
+    /// sync-root state. WinRT can also return that error for an inaccessible path.
     pub fn is_registered(&self) -> core::Result<bool> {
         match StorageProviderSyncRootManager::GetSyncRootInformationForId(&self.0) {
             Ok(_) => Ok(true),
@@ -152,6 +156,10 @@ impl SyncRootId {
     ///
     /// [SyncRootInfo::display_name], [SyncRootInfo::icon], [SyncRootInfo::version] and [SyncRootInfo::path]
     /// are required and cannot be empty.
+    ///
+    /// Registration does not convert existing children to placeholders or reconcile
+    /// them with remote data. Use [Session::connect][super::Session::connect] to resume
+    /// an existing registration; registration updates can change population state.
     pub fn register(&self, info: SyncRootInfo) -> core::Result<()> {
         macro_rules! check_field {
             ($info:ident, $field:ident) => {
@@ -173,6 +181,14 @@ impl SyncRootId {
     }
 
     /// Unregisters the sync root at the current [SyncRootId] if it exists.
+    ///
+    /// Drop all connections first. This is removal of the sync root, not a way to
+    /// pause synchronization: fully hydrated files and fully populated directories
+    /// are reverted to ordinary entries; other placeholders can be deleted locally.
+    /// Entries that cannot be reverted or deleted may be skipped, so success does
+    /// not imply that all placeholder metadata has been removed.
+    ///
+    /// See [CfUnregisterSyncRoot](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfunregistersyncroot).
     pub fn unregister(&self) -> core::Result<()> {
         StorageProviderSyncRootManager::Unregister(&self.0)
     }

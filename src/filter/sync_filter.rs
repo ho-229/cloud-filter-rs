@@ -9,9 +9,20 @@ use crate::{
 ///
 /// [Send] and [Sync] are required as the callback could be invoked from an arbitrary thread, [read
 /// here](https://docs.microsoft.com/en-us/windows/win32/api/cfapi/ne-cfapi-cf_callback_type#remarks).
+///
+/// These are Cloud Filter requests and notifications, not a filesystem change log.
+/// The bridge registers every native callback, including methods with default
+/// implementations. Returning `NotSupported` rejects a request; it does not opt out
+/// of registering that callback. Successful request handlers must complete the
+/// operation through their ticket; returning `Ok(())` alone does not acknowledge it.
+///
+/// Provider-originated operations can bypass notifications. Test user actions from
+/// a separate process, and use `Request::try_process` because cancellation callbacks
+/// may have no process information. Local writes need separate change tracking;
+/// `state_changed` is implemented by this crate's directory watcher.
 pub trait SyncFilter: Send + Sync {
     /// A placeholder hydration has been requested. This means that the placeholder should be
-    /// populated with its corresponding data on the remote.
+    /// filled with the requested remote byte ranges. Cached reads need no fetch.
     fn fetch_data(
         &self,
         _request: Request,
@@ -19,7 +30,8 @@ pub trait SyncFilter: Send + Sync {
         _info: info::FetchData,
     ) -> CResult<()>;
 
-    /// A placeholder hydration request has been cancelled.
+    /// A pending byte range is no longer needed. This may cover only part of a fetch.
+    /// Inspect the cancellation flags; it is not a notification for every closed handle.
     fn cancel_fetch_data(&self, _request: Request, _info: info::CancelFetchData) {}
 
     /// Followed by a successful call to [SyncFilter::fetch_data][super::SyncFilter::fetch_data], this callback should verify the integrity of
@@ -41,6 +53,10 @@ pub trait SyncFilter: Send + Sync {
 
     /// A directory population has been requested. The behavior of this callback is dependent on
     /// the [PopulationType][crate::root::PopulationType] variant specified during registration.
+    /// Queries or opens below a partially populated placeholder directory can trigger it.
+    /// Ordinary directories and fully populated directories do not need this callback.
+    /// `AlwaysFull` population disables it entirely. Completion is not a remote refresh
+    /// subscription: the provider must discover later remote changes itself.
     fn fetch_placeholders(
         &self,
         _request: Request,
@@ -54,18 +70,18 @@ pub trait SyncFilter: Send + Sync {
     fn cancel_fetch_placeholders(&self, _request: Request, _info: info::CancelFetchPlaceholders) {}
 
     /// A placeholder file handle has been opened for read, write, and/or delete
-    /// access.
+    /// access. Attribute-only opens and directories are excluded. No acknowledgment is needed.
     fn opened(&self, _request: Request, _info: info::Opened) {}
 
     /// A placeholder file handle that has been previously opened with read, write,
     /// and/or delete access has been closed.
     fn closed(&self, _request: Request, _info: info::Closed) {}
 
-    /// A placeholder dehydration has been requested. This means that all of the data persisted in
-    /// the file will be __completely__ discarded.
+    /// The platform requests permission to dehydrate a placeholder.
     ///
-    /// The operating system will handle dehydrating placeholder files automatically. However, it
-    /// is up to **you** to approve this. Use the ticket to approve the request.
+    /// The requesting application is blocked until the ticket is acknowledged or failed.
+    /// Pin/unpin attribute changes alone do not guarantee this callback. Provider-issued
+    /// dehydration can bypass it, so enforce provider-side checks at that call site too.
     fn dehydrate(
         &self,
         _request: Request,
@@ -75,10 +91,10 @@ pub trait SyncFilter: Send + Sync {
         Err(CloudErrorKind::NotSupported)
     }
 
-    /// A placeholder dehydration request has been cancelled.
+    /// A placeholder dehydration has completed successfully. No acknowledgment is needed.
     fn dehydrated(&self, _request: Request, _info: info::Dehydrated) {}
 
-    /// A placeholder file is about to be deleted.
+    /// A placeholder file or directory is about to be deleted (or undeleted; inspect the flags).
     ///
     /// The operating system will handle deleting placeholder files automatically. However, it is
     /// up to **you** to approve this. Use the ticket to approve the request.
@@ -91,16 +107,17 @@ pub trait SyncFilter: Send + Sync {
         Err(CloudErrorKind::NotSupported)
     }
 
-    /// A placeholder file has been deleted.
+    /// A placeholder file or directory has been deleted. No acknowledgment is needed.
     fn deleted(&self, _request: Request, _info: info::Deleted) {}
 
-    /// A placeholder file is about to be renamed or moved.
+    /// A placeholder file or directory is about to be renamed or moved. Inspect both scope flags.
     ///
     /// The operating system will handle moving and renaming placeholder files automatically.
     /// However, it is up to **you** to approve this. Use the ticket to approve the
     /// request.
     ///
-    /// When the operation is completed, the [SyncFilter::renamed] callback will be called.
+    /// A successful operation can produce the [SyncFilter::renamed] completion callback.
+    /// Acknowledgment permits the local operation; it is not itself proof of completion.
     fn rename(
         &self,
         _request: Request,
@@ -110,7 +127,7 @@ pub trait SyncFilter: Send + Sync {
         Err(CloudErrorKind::NotSupported)
     }
 
-    /// A placeholder file has been renamed or moved.
+    /// A placeholder file or directory has been renamed or moved. No acknowledgment is needed.
     fn renamed(&self, _request: Request, _info: info::Renamed) {}
 
     /// Paths to recheck after attribute changes, or termination of the root watcher.

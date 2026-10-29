@@ -18,12 +18,12 @@ mod proxy;
 mod request;
 mod sync_filter;
 
-/// Notifications from the sync root's attribute watcher, not native CF callbacks.
+/// Notifications from the sync root's directory watcher, not native CF callbacks.
 #[derive(Debug)]
 pub enum StateWatchEvent {
-    /// Paths whose current attributes should be checked. Paths may repeat or no longer exist.
+    /// Paths whose current state should be checked. Paths may repeat or no longer exist.
     /// If notifications are lost, the library scans the root and reports descendants in
-    /// batches of at most 64 paths, including paths whose attributes may not have changed.
+    /// batches of at most 64 paths, including paths whose state may not have changed.
     /// The scan does not follow symlinks or junctions. Scan errors terminate the watcher.
     Changed(Vec<std::path::PathBuf>),
     /// The watcher terminated after a runtime error. No further events follow.

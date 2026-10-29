@@ -3,6 +3,7 @@ use std::process::ExitCode;
 use libtest_mimic::{run, Arguments, Trial};
 
 mod async_filter;
+mod lifecycle;
 mod placeholder;
 mod properties;
 mod state_watcher;
@@ -11,6 +12,13 @@ mod sync_filter;
 fn main() -> ExitCode {
     let args = Arguments::from_args();
     let tests = vec![
+        Trial::test("registration_lifecycle", lifecycle::registration_lifecycle),
+        Trial::test("callback_triggers", lifecycle::callback_triggers),
+        Trial::test(
+            "callback_cancellation_timeout",
+            lifecycle::callback_cancellation_timeout,
+        )
+        .with_ignored_flag(true),
         Trial::test(
             "file_round_trip",
             placeholder::file_round_trip_transfers_ownership,

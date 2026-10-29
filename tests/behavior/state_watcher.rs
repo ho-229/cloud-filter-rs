@@ -4,7 +4,7 @@ use std::{
         mpsc::{self, Receiver, Sender},
         Mutex,
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use cloud_filter::{
@@ -129,9 +129,16 @@ fn event(receiver: &Receiver<StateWatchEvent>) -> StateWatchEvent {
 }
 
 fn changed(receiver: &Receiver<StateWatchEvent>, path: &Path) {
-    match event(receiver) {
-        StateWatchEvent::Changed(paths) => assert!(paths.iter().any(|p| p == path)),
-        other => panic!("expected change, got {other:?}"),
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match receiver
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap()
+        {
+            StateWatchEvent::Changed(paths) if paths.iter().any(|p| p == path) => return,
+            StateWatchEvent::Changed(_) => {} // Other queued changes may arrive first.
+            other => panic!("expected change to {path:?}, got {other:?}"),
+        }
     }
 }
 
@@ -237,8 +244,8 @@ pub fn overflow_and_resume() -> Result<(), Failed> {
         .find(|path| !first.contains(path))
         .unwrap()
         .join("late.txt");
-    // Creating a file is not an attribute notification. It must be discovered by
-    // continuing the scan, not by collecting the whole tree before the first callback.
+    // Add a file to a directory that has not been reported yet. Both the continuing
+    // scan and the resumed native watcher must tolerate changes during traversal.
     std::fs::write(&later, b"created during scan")?;
     let mut expected: std::collections::HashSet<_> =
         files.iter().chain(&folders).cloned().collect();

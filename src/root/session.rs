@@ -23,10 +23,9 @@ impl Session {
         Self::default()
     }
 
-    /// The [Session::block_implicit_hydration] flag will prevent
-    /// implicit placeholder hydrations from invoking
-    /// [SyncFilter::fetch_data][crate::filter::SyncFilter::fetch_data]. This could occur when an
-    /// anti-virus is scanning file system activity on files within the sync root.
+    /// Blocks implicit hydration originating from the connected provider process,
+    /// including hydration caused by antivirus scanning that process's file activity.
+    /// It does not block other applications from hydrating files.
     ///
     /// A call to the [Placeholder::hydrate][crate::placeholder::Placeholder::hydrate] trait will not be blocked by this flag.
     pub fn block_implicit_hydration(mut self) -> Self {
@@ -36,7 +35,7 @@ impl Session {
 
     /// Initiates a connection to the sync root with the given [SyncFilter].
     ///
-    /// Fails if the attribute watcher cannot start. Later watcher failures are
+    /// Fails if the directory watcher cannot start. Later watcher failures are
     /// delivered through [filter::StateWatchEvent::Stopped]; disconnect is silent.
     pub fn connect<P, F>(self, path: P, filter: F) -> core::Result<Connection<F>>
     where
