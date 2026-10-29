@@ -4,6 +4,7 @@ use libtest_mimic::{run, Arguments, Trial};
 
 mod async_filter;
 mod placeholder;
+mod state_watcher;
 mod sync_filter;
 
 fn main() -> ExitCode {
@@ -18,6 +19,27 @@ fn main() -> ExitCode {
             placeholder::placeholder_outputs_and_protected_handles_remain_valid,
         ),
         Trial::test("sync_filter", sync_filter::test),
+        Trial::test(
+            "state_watch_startup_failures",
+            state_watcher::startup_failures,
+        ),
+        Trial::test(
+            "state_watch_unicode_paths_and_shutdown",
+            state_watcher::unicode_paths_and_shutdown,
+        ),
+        Trial::test("state_watch_deleted_root", state_watcher::deleted_root),
+        Trial::test(
+            "state_watch_idle_disconnect",
+            state_watcher::idle_disconnect,
+        ),
+        Trial::test(
+            "state_watch_overflow_and_resume",
+            state_watcher::overflow_and_resume,
+        ),
+        Trial::test(
+            "state_watch_async_terminal_event",
+            state_watcher::async_terminal_event,
+        ),
     ];
 
     let conclusion = run(&args, tests);

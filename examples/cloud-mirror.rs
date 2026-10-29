@@ -301,8 +301,8 @@ impl SyncFilter for CloudMirror {
         println!("renamed");
     }
 
-    fn state_changed(&self, changes: Vec<PathBuf>) {
-        println!("state_changed: {:?}", changes);
+    fn state_changed(&self, event: cloud_filter::filter::StateWatchEvent) {
+        println!("state_changed: {:?}", event);
     }
 }
 
