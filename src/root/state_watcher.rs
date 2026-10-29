@@ -25,7 +25,8 @@ use windows::{
         },
         Storage::FileSystem::{
             ReadDirectoryChangesW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED,
-            FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_ATTRIBUTES,
+            FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_DIR_NAME,
+            FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
         },
         System::{
             Threading::CreateEventW,
@@ -156,7 +157,11 @@ impl Watch {
                 self.buffer.as_mut_ptr().cast(),
                 std::mem::size_of_val(&self.buffer) as u32,
                 true,
-                FILE_NOTIFY_CHANGE_ATTRIBUTES,
+                FILE_NOTIFY_CHANGE_ATTRIBUTES
+                    | FILE_NOTIFY_CHANGE_FILE_NAME
+                    | FILE_NOTIFY_CHANGE_DIR_NAME
+                    | FILE_NOTIFY_CHANGE_SIZE
+                    | FILE_NOTIFY_CHANGE_LAST_WRITE,
                 None,
                 Some(&mut self.overlapped),
                 None,

@@ -155,17 +155,19 @@ pub trait Filter: Send + Sync {
         async {}
     }
 
-    /// Paths to recheck after attribute changes, or termination of the root watcher.
+    /// Paths to recheck after name, content, size, or attribute changes, or watcher termination.
     ///
     /// Lost notifications trigger an internal root scan, reported incrementally through
-    /// [StateWatchEvent::Changed]. Recheck current attributes; paths may repeat or be unchanged.
+    /// [StateWatchEvent::Changed]. Recheck current state; paths may repeat or be unchanged.
     /// `Stopped` is terminal for the watcher. Normal disconnect emits no error.
     /// This callback runs on the watcher thread: queue slow work elsewhere.
     ///
     /// This callback is implemented using [ReadDirectoryChangesW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw)
     /// so it is not provided by the `Cloud Filter APIs`.
     ///
-    /// This callback is used to detect when a user pins or unpins a placeholder file, etc.
+    /// Use this to detect local writes and newly created files as well as pin/unpin changes.
+    /// Paths may repeat or no longer exist; inspect their current state. Queue slow work
+    /// rather than blocking the directory watcher. Notifications are not a durable journal.
     ///
     /// See also [Cloud Files API Frequently Asked Questions](https://www.userfilesystem.com/programming/faq/).
     fn state_changed(&self, _event: StateWatchEvent) -> impl Future<Output = ()> {
