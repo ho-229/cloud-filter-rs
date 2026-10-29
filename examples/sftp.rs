@@ -346,8 +346,8 @@ impl SyncFilter for Filter {
         println!("renamed");
     }
 
-    fn state_changed(&self, changes: Vec<std::path::PathBuf>) {
-        println!("state_changed: {:?}", changes);
+    fn state_changed(&self, event: cloud_filter::filter::StateWatchEvent) {
+        println!("state_changed: {:?}", event);
     }
 }
 

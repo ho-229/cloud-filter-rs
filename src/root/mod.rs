@@ -1,5 +1,6 @@
 mod connect;
 mod session;
+mod state_watcher;
 mod sync_root_id;
 mod sync_root_info;
 
