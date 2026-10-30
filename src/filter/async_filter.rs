@@ -1,4 +1,4 @@
-use std::{future::Future, mem::MaybeUninit, ops::Deref, path::PathBuf};
+use std::{future::Future, ops::Deref};
 
 use crate::{
     error::{CResult, CloudErrorKind},
@@ -6,7 +6,7 @@ use crate::{
     utility::LocalBoxFuture,
 };
 
-use super::{info, ticket, SyncFilter};
+use super::{info, ticket, StateWatchEvent, SyncFilter};
 
 /// Async core functions for implementing a Sync Engine.
 ///
@@ -138,7 +138,12 @@ pub trait Filter: Send + Sync {
         async {}
     }
 
-    /// Placeholder for changed attributes under the sync root.
+    /// Paths to recheck after attribute changes, or termination of the root watcher.
+    ///
+    /// Lost notifications trigger an internal root scan, reported incrementally through
+    /// [StateWatchEvent::Changed]. Recheck current attributes; paths may repeat or be unchanged.
+    /// `Stopped` is terminal for the watcher. Normal disconnect emits no error.
+    /// This callback runs on the watcher thread: queue slow work elsewhere.
     ///
     /// This callback is implemented using [ReadDirectoryChangesW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw)
     /// so it is not provided by the `Cloud Filter APIs`.
@@ -146,7 +151,7 @@ pub trait Filter: Send + Sync {
     /// This callback is used to detect when a user pins or unpins a placeholder file, etc.
     ///
     /// See also [Cloud Files API Frequently Asked Questions](https://www.userfilesystem.com/programming/faq/).
-    fn state_changed(&self, _changes: Vec<PathBuf>) -> impl Future<Output = ()> {
+    fn state_changed(&self, _event: StateWatchEvent) -> impl Future<Output = ()> {
         async {}
     }
 }
@@ -178,12 +183,12 @@ where
         ticket: ticket::FetchData,
         info: info::FetchData,
     ) -> CResult<()> {
-        let mut ret = MaybeUninit::zeroed();
+        let mut ret = Err(CloudErrorKind::Unsuccessful);
         (self.block_on)(Box::pin(async {
-            ret.write(self.filter.fetch_data(request, ticket, info).await);
+            ret = self.filter.fetch_data(request, ticket, info).await;
         }));
 
-        unsafe { ret.assume_init() }
+        ret
     }
 
     fn cancel_fetch_data(&self, request: Request, info: info::CancelFetchData) {
@@ -196,12 +201,12 @@ where
         ticket: ticket::ValidateData,
         info: info::ValidateData,
     ) -> CResult<()> {
-        let mut ret = MaybeUninit::zeroed();
+        let mut ret = Err(CloudErrorKind::Unsuccessful);
         (self.block_on)(Box::pin(async {
-            ret.write(self.filter.validate_data(request, ticket, info).await);
+            ret = self.filter.validate_data(request, ticket, info).await;
         }));
 
-        unsafe { ret.assume_init() }
+        ret
     }
 
     fn fetch_placeholders(
@@ -210,12 +215,12 @@ where
         ticket: ticket::FetchPlaceholders,
         info: info::FetchPlaceholders,
     ) -> CResult<()> {
-        let mut ret = MaybeUninit::zeroed();
+        let mut ret = Err(CloudErrorKind::Unsuccessful);
         (self.block_on)(Box::pin(async {
-            ret.write(self.filter.fetch_placeholders(request, ticket, info).await);
+            ret = self.filter.fetch_placeholders(request, ticket, info).await;
         }));
 
-        unsafe { ret.assume_init() }
+        ret
     }
 
     fn cancel_fetch_placeholders(&self, request: Request, info: info::CancelFetchPlaceholders) {
@@ -238,12 +243,12 @@ where
         ticket: ticket::Dehydrate,
         info: info::Dehydrate,
     ) -> CResult<()> {
-        let mut ret = MaybeUninit::zeroed();
+        let mut ret = Err(CloudErrorKind::Unsuccessful);
         (self.block_on)(Box::pin(async {
-            ret.write(self.filter.dehydrate(request, ticket, info).await);
+            ret = self.filter.dehydrate(request, ticket, info).await;
         }));
 
-        unsafe { ret.assume_init() }
+        ret
     }
 
     fn dehydrated(&self, request: Request, info: info::Dehydrated) {
@@ -251,12 +256,12 @@ where
     }
 
     fn delete(&self, request: Request, ticket: ticket::Delete, info: info::Delete) -> CResult<()> {
-        let mut ret = MaybeUninit::zeroed();
+        let mut ret = Err(CloudErrorKind::Unsuccessful);
         (self.block_on)(Box::pin(async {
-            ret.write(self.filter.delete(request, ticket, info).await);
+            ret = self.filter.delete(request, ticket, info).await;
         }));
 
-        unsafe { ret.assume_init() }
+        ret
     }
 
     fn deleted(&self, request: Request, info: info::Deleted) {
@@ -264,20 +269,20 @@ where
     }
 
     fn rename(&self, request: Request, ticket: ticket::Rename, info: info::Rename) -> CResult<()> {
-        let mut ret = MaybeUninit::zeroed();
+        let mut ret = Err(CloudErrorKind::Unsuccessful);
         (self.block_on)(Box::pin(async {
-            ret.write(self.filter.rename(request, ticket, info).await);
+            ret = self.filter.rename(request, ticket, info).await;
         }));
 
-        unsafe { ret.assume_init() }
+        ret
     }
 
     fn renamed(&self, request: Request, info: info::Renamed) {
         (self.block_on)(Box::pin(self.filter.renamed(request, info)))
     }
 
-    fn state_changed(&self, changes: Vec<PathBuf>) {
-        (self.block_on)(Box::pin(self.filter.state_changed(changes)))
+    fn state_changed(&self, event: StateWatchEvent) {
+        (self.block_on)(Box::pin(self.filter.state_changed(event)))
     }
 }
 
@@ -290,5 +295,36 @@ where
 
     fn deref(&self) -> &Self::Target {
         &self.filter
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::Storage::CloudFilters::CF_CALLBACK_INFO;
+
+    struct PendingFilter;
+    impl Filter for PendingFilter {
+        async fn fetch_data(
+            &self,
+            _: Request,
+            _: ticket::FetchData,
+            _: info::FetchData,
+        ) -> CResult<()> {
+            std::future::pending().await
+        }
+    }
+
+    #[test]
+    fn unfinished_executor_cannot_report_success() {
+        // The caller supplies block_on as a safe closure; it can simply discard the future.
+        let bridge = AsyncBridge::new(PendingFilter, |_: LocalBoxFuture<'_, ()>| {});
+        let result = SyncFilter::fetch_data(
+            &bridge,
+            unsafe { Request::new(CF_CALLBACK_INFO::default()) },
+            ticket::FetchData::new(0, 0, 0..1),
+            info::FetchData(Default::default()),
+        );
+        assert!(matches!(result, Err(CloudErrorKind::Unsuccessful)));
     }
 }

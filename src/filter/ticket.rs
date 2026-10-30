@@ -6,10 +6,10 @@ use windows::{
 };
 
 use crate::{
-    command::{self, Command},
+    command::{self, Command, Fallible},
     error::CloudErrorKind,
     filter::{RawConnectionKey, RawTransferKey},
-    placeholder_file::PlaceholderFile,
+    placeholder_create_info::PlaceholderCreateInfo,
     sealed, utility,
 };
 
@@ -40,7 +40,7 @@ impl FetchData {
     /// than waiting for the platform's timeout. Fails if the fetch was already cancelled or
     /// timed out.
     pub fn fail(&self, error_kind: CloudErrorKind) -> core::Result<()> {
-        command::Write::fail_range(
+        command::Write::fail(
             self.connection_key,
             self.transfer_key,
             self.range.clone(),
@@ -165,7 +165,10 @@ impl FetchPlaceholders {
     /// Creates a list of placeholder files/directorys on the file system.
     ///
     /// The value returned is the final [Usn][crate::usn::Usn] (and if they succeeded) after each placeholder is created.
-    pub fn pass_with_placeholder(&self, placeholders: &mut [PlaceholderFile]) -> core::Result<()> {
+    pub fn pass_with_placeholder(
+        &self,
+        placeholders: &mut [PlaceholderCreateInfo],
+    ) -> core::Result<()> {
         command::CreatePlaceholders {
             total: placeholders.len() as _,
             placeholders,

@@ -1,36 +1,16 @@
-use std::{
-    fs::OpenOptions,
-    mem::{self, MaybeUninit},
-    os::windows::{fs::OpenOptionsExt, io::AsRawHandle},
-    path::{Path, PathBuf},
-    sync::{
-        mpsc::{self, Sender, TryRecvError},
-        Arc, Weak,
-    },
-    thread::{self, JoinHandle},
-    time::Duration,
-};
-
-use widestring::{U16CString, U16Str};
-use windows::{
-    core::{self, PCWSTR},
-    Win32::{
-        Foundation::{ERROR_IO_INCOMPLETE, HANDLE, WIN32_ERROR},
-        Storage::{
-            CloudFilters::{self, CfConnectSyncRoot, CF_CONNECT_FLAGS},
-            FileSystem::{
-                ReadDirectoryChangesW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED,
-                FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_INFORMATION,
-            },
-        },
-        System::IO::{CancelIoEx, GetOverlappedResult},
-    },
-};
-
 use crate::{
     filter::{self, AsyncBridge, Filter, SyncFilter},
-    root::connect::Connection,
+    root::{connect::Connection, state_watcher::spawn_root_watcher},
     utility::LocalBoxFuture,
+};
+use std::{
+    path::Path,
+    sync::{Arc, Weak},
+};
+use widestring::U16CString;
+use windows::{
+    core::{self, PCWSTR},
+    Win32::Storage::CloudFilters::{self, CfConnectSyncRoot, CF_CONNECT_FLAGS},
 };
 
 /// A builder to create a new connection for the sync root at the specified path.
@@ -55,6 +35,9 @@ impl Session {
     }
 
     /// Initiates a connection to the sync root with the given [SyncFilter].
+    ///
+    /// Fails if the attribute watcher cannot start. Later watcher failures are
+    /// delivered through [filter::StateWatchEvent::Stopped]; disconnect is silent.
     pub fn connect<P, F>(self, path: P, filter: F) -> core::Result<Connection<F>>
     where
         P: AsRef<Path>,
@@ -62,6 +45,11 @@ impl Session {
     {
         let filter = Arc::new(filter);
         let callbacks = filter::callbacks::<F>();
+        let context = Box::new(Arc::downgrade(&filter));
+        // The worker reports startup errors before connect succeeds, then waits
+        // for the native connection before delivering events.
+        let (cancel_token, join_handle) =
+            spawn_root_watcher(path.as_ref().to_path_buf(), filter.clone())?;
         let key = unsafe {
             CfConnectSyncRoot(
                 PCWSTR(
@@ -70,27 +58,28 @@ impl Session {
                         .as_ptr(),
                 ),
                 callbacks.as_ptr(),
-                // create a weak arc so that it could be upgraded when it's being used and when the
-                // connection is closed, the filter could be freed
-                Some(Weak::into_raw(Arc::downgrade(&filter)) as *const _),
+                // The boxed Weak slot stays at a stable address until disconnect completes.
+                Some((&*context as *const Weak<F>).cast()),
                 // This is enabled by default to remove the Option requirement around various fields of the
                 // [Request][crate::Request] struct
                 self.0
                     | CloudFilters::CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH
                     | CloudFilters::CF_CONNECT_FLAG_REQUIRE_PROCESS_INFO,
             )
-        }?;
+        };
+        let key = match key {
+            Ok(key) => key,
+            Err(error) => {
+                drop(cancel_token);
+                let _ = join_handle.join();
+                return Err(error);
+            }
+        };
+        let _ = cancel_token.send(());
 
-        let (cancel_token, join_handle) =
-            spawn_root_watcher(path.as_ref().to_path_buf(), filter.clone());
-
-        Ok(Connection::new(
-            key.0,
-            cancel_token,
-            join_handle,
-            callbacks,
-            filter,
-        ))
+        let mut connection = Connection::new(key.0, cancel_token, callbacks, filter, context);
+        connection.set_worker(join_handle);
+        Ok(connection)
     }
 
     /// Initiates a connection to the sync root with the given [Filter].
@@ -113,98 +102,4 @@ impl Default for Session {
     fn default() -> Self {
         Self(CloudFilters::CF_CONNECT_FLAG_NONE)
     }
-}
-
-fn spawn_root_watcher<T: SyncFilter + 'static>(
-    path: PathBuf,
-    filter: Arc<T>,
-) -> (Sender<()>, JoinHandle<()>) {
-    let (tx, rx) = mpsc::channel();
-    let handle = thread::spawn(move || {
-        const CHANGE_BUF_SIZE: usize = 1024;
-
-        let sync_root = OpenOptions::new()
-            .access_mode(FILE_LIST_DIRECTORY.0)
-            .custom_flags((FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED).0)
-            .open(&path)
-            .expect("sync root directory is opened");
-        let mut changes_buf = MaybeUninit::<[u8; CHANGE_BUF_SIZE]>::zeroed();
-        let mut overlapped = MaybeUninit::zeroed();
-        let mut transferred = MaybeUninit::zeroed();
-
-        while matches!(rx.try_recv(), Err(TryRecvError::Empty)) {
-            unsafe {
-                ReadDirectoryChangesW(
-                    HANDLE(sync_root.as_raw_handle() as _),
-                    changes_buf.as_mut_ptr() as *mut _,
-                    CHANGE_BUF_SIZE as _,
-                    true,
-                    FILE_NOTIFY_CHANGE_ATTRIBUTES,
-                    None,
-                    Some(overlapped.as_mut_ptr()),
-                    None,
-                )
-            }
-            .expect("read directory changes");
-
-            loop {
-                if let Err(e) = unsafe {
-                    GetOverlappedResult(
-                        HANDLE(sync_root.as_raw_handle() as _),
-                        overlapped.as_ptr(),
-                        transferred.as_mut_ptr(),
-                        false,
-                    )
-                } {
-                    if e.code() != ERROR_IO_INCOMPLETE.to_hresult() {
-                        panic!(
-                            "get overlapped result: {:?}, expected: {ERROR_IO_INCOMPLETE:?}",
-                            WIN32_ERROR::from_error(&e),
-                        );
-                    }
-
-                    // cancel by user
-                    if !matches!(rx.try_recv(), Err(TryRecvError::Empty)) {
-                        _ = unsafe {
-                            CancelIoEx(
-                                HANDLE(sync_root.as_raw_handle() as _),
-                                Some(overlapped.as_ptr()),
-                            )
-                        };
-                        return;
-                    }
-
-                    thread::sleep(Duration::from_millis(300));
-                    continue;
-                }
-
-                if unsafe { transferred.assume_init() } == 0 {
-                    break;
-                }
-
-                let mut changes = Vec::with_capacity(8);
-                let mut entry = changes_buf.as_ptr() as *const FILE_NOTIFY_INFORMATION;
-                loop {
-                    let relative = unsafe {
-                        U16Str::from_ptr(
-                            &(*entry).FileName as *const _,
-                            (*entry).FileNameLength as usize / mem::size_of::<u16>(),
-                        )
-                    };
-
-                    changes.push(path.join(relative.to_os_string()));
-
-                    if unsafe { *entry }.NextEntryOffset == 0 {
-                        break;
-                    }
-                    entry = unsafe { entry.byte_add((*entry).NextEntryOffset as _) };
-                }
-
-                filter.state_changed(changes);
-                break;
-            }
-        }
-    });
-
-    (tx, handle)
 }

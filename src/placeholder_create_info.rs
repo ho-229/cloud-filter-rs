@@ -13,10 +13,11 @@ use crate::{metadata::Metadata, sealed, usn::Usn};
 
 /// A builder for creating new placeholder files/directories.
 #[derive(Debug)]
-pub struct PlaceholderFile(CF_PLACEHOLDER_CREATE_INFO);
+#[repr(transparent)]
+pub struct PlaceholderCreateInfo(CF_PLACEHOLDER_CREATE_INFO);
 
-impl PlaceholderFile {
-    /// Creates a new [PlaceholderFile].
+impl PlaceholderCreateInfo {
+    /// Creates a new [PlaceholderCreateInfo].
     pub fn new(relative_path: impl AsRef<Path>) -> Self {
         Self(CF_PLACEHOLDER_CREATE_INFO {
             RelativeFileName: PCWSTR(
@@ -30,7 +31,7 @@ impl PlaceholderFile {
         })
     }
 
-    /// Marks this [PlaceholderFile] as having no child placeholders on
+    /// Marks this [PlaceholderCreateInfo] as having no child placeholders on
     /// creation.
     ///
     /// Only applicable to placeholder directories.
@@ -63,7 +64,7 @@ impl PlaceholderFile {
         self
     }
 
-    /// The metadata for the [PlaceholderFile].
+    /// The metadata for the [PlaceholderCreateInfo].
     pub fn metadata(mut self, metadata: Metadata) -> Self {
         self.0.FsMetadata = metadata.0;
         self
@@ -83,6 +84,15 @@ impl PlaceholderFile {
             blob.len()
         );
 
+        if !self.0.FileIdentity.is_null() {
+            // Release the previous identity before replacing it. Drop owns the new one.
+            unsafe {
+                drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+                    self.0.FileIdentity as *mut u8,
+                    self.0.FileIdentityLength as usize,
+                )));
+            }
+        }
         if blob.is_empty() {
             self.0.FileIdentity = ptr::null();
             self.0.FileIdentityLength = 0;
@@ -112,11 +122,11 @@ impl PlaceholderFile {
     /// [SyncFilter::fetch_placeholders][crate::filter::SyncFilter::fetch_placeholders] callback,
     /// do not use this method. Instead, use
     /// [FetchPlaceholders::pass_with_placeholder][crate::filter::ticket::FetchPlaceholders::pass_with_placeholder].
-    pub fn create<P: AsRef<Path>>(self, parent: impl AsRef<Path>) -> core::Result<Usn> {
+    pub fn create<P: AsRef<Path>>(mut self, parent: P) -> core::Result<Usn> {
         unsafe {
             CfCreatePlaceholders(
                 PCWSTR(U16CString::from_os_str(parent.as_ref()).unwrap().as_ptr()),
-                &mut [self.0],
+                slice::from_mut(&mut self.0),
                 CloudFilters::CF_CREATE_FLAG_NONE,
                 None,
             )?;
@@ -126,10 +136,10 @@ impl PlaceholderFile {
     }
 }
 
-impl Drop for PlaceholderFile {
+impl Drop for PlaceholderCreateInfo {
     fn drop(&mut self) {
         // Safety: `self.0.RelativeFileName.0` is a valid pointer to a valid UTF-16 string
-        drop(unsafe { U16CString::from_ptr_str(self.0.RelativeFileName.0) });
+        drop(unsafe { U16CString::from_raw(self.0.RelativeFileName.0 as *mut u16) });
 
         if !self.0.FileIdentity.is_null() {
             // Safety: `self.0.FileIdentity` is a valid pointer to a valid slice
@@ -148,7 +158,7 @@ pub trait BatchCreate: sealed::Sealed {
     fn create<P: AsRef<Path>>(&mut self, path: P) -> core::Result<()>;
 }
 
-impl BatchCreate for [PlaceholderFile] {
+impl BatchCreate for [PlaceholderCreateInfo] {
     fn create<P: AsRef<Path>>(&mut self, path: P) -> core::Result<()> {
         unsafe {
             CfCreatePlaceholders(
@@ -161,4 +171,4 @@ impl BatchCreate for [PlaceholderFile] {
     }
 }
 
-impl sealed::Sealed for [PlaceholderFile] {}
+impl sealed::Sealed for [PlaceholderCreateInfo] {}

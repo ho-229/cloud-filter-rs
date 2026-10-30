@@ -18,7 +18,8 @@ use crate::{
     error::CloudErrorKind,
     filter::{RawConnectionKey, RawTransferKey},
     metadata::Metadata,
-    placeholder_file::PlaceholderFile,
+    placeholder_create_info::PlaceholderCreateInfo,
+    utility,
 };
 
 /// Read data from a placeholder file.
@@ -40,16 +41,16 @@ impl Command for Read<'_> {
         info.RetrieveData.ReturnedLength as u64
     }
 
-    fn build(&self) -> CF_OPERATION_PARAMETERS_0 {
-        CF_OPERATION_PARAMETERS_0 {
+    fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
+        Ok(CF_OPERATION_PARAMETERS_0 {
             RetrieveData: CF_OPERATION_PARAMETERS_0_5 {
                 Flags: CloudFilters::CF_OPERATION_RETRIEVE_DATA_FLAG_NONE,
-                Buffer: self.buffer.as_ptr() as *mut _,
-                Offset: self.position as i64,
+                Buffer: self.buffer.as_mut_ptr().cast(),
+                Offset: utility::checked_offset(self.position)?,
                 Length: self.buffer.len() as i64,
                 ReturnedLength: 0,
             },
-        }
+        })
     }
 }
 
@@ -70,62 +71,41 @@ impl Command for Write<'_> {
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
-    fn build(&self) -> CF_OPERATION_PARAMETERS_0 {
-        CF_OPERATION_PARAMETERS_0 {
+    fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
+        Ok(CF_OPERATION_PARAMETERS_0 {
             TransferData: CF_OPERATION_PARAMETERS_0_6 {
                 // TODO: add flag for disable_on_demand_population
                 Flags: CloudFilters::CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
                 Buffer: self.buffer.as_ptr() as *mut _,
-                Offset: self.position as i64,
+                Offset: utility::checked_offset(self.position)?,
                 Length: self.buffer.len() as i64,
             },
-        }
+        })
     }
 }
 
 impl Fallible for Write<'_> {
+    type Context = Range<u64>;
+
+    /// Fails the fetch of `range`, the range the platform asked for: failing a transfer of
+    /// nothing is refused as an invalid operation, and the reading
+    /// program waits for the platform's timeout instead.
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
-        error_kind: CloudErrorKind,
-    ) -> core::Result<Self::Result> {
-        execute::<Self>(
-            CF_OPERATION_PARAMETERS_0 {
-                TransferData: CF_OPERATION_PARAMETERS_0_6 {
-                    Flags: CloudFilters::CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
-                    CompletionStatus: error_kind.into(),
-                    // TODO: SAME HERE AS BELOW?
-                    Buffer: [0; 1].as_mut_ptr() as *mut _,
-                    Offset: 0,
-                    // TODO: DOES THIS HAVE TO BE DEFINED?
-                    Length: 0,
-                },
-            },
-            connection_key,
-            transfer_key,
-        )
-    }
-}
-
-impl Write<'_> {
-    /// Fails the fetch of `range`, the range the platform asked for: failing a transfer of
-    /// nothing (as [`Fallible::fail`] does) is refused as an invalid operation, and the reading
-    /// program waits for the platform's timeout instead.
-    pub fn fail_range(
-        connection_key: RawConnectionKey,
-        transfer_key: RawTransferKey,
-        range: std::ops::Range<u64>,
+        context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<()> {
+        let (offset, length) = utility::checked_range(context)?;
         execute::<Self>(
             CF_OPERATION_PARAMETERS_0 {
                 TransferData: CF_OPERATION_PARAMETERS_0_6 {
                     Flags: CloudFilters::CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
                     CompletionStatus: error_kind.into(),
                     Buffer: std::ptr::null_mut(),
-                    Offset: range.start as i64,
-                    Length: (range.end - range.start) as i64,
+                    Offset: offset,
+                    Length: length,
                 },
             },
             connection_key,
@@ -154,8 +134,8 @@ impl Command for Update<'_> {
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
-    fn build(&self) -> CF_OPERATION_PARAMETERS_0 {
-        CF_OPERATION_PARAMETERS_0 {
+    fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
+        Ok(CF_OPERATION_PARAMETERS_0 {
             RestartHydration: CF_OPERATION_PARAMETERS_0_4 {
                 Flags: if self.mark_in_sync {
                     CloudFilters::CF_OPERATION_RESTART_HYDRATION_FLAG_MARK_IN_SYNC
@@ -170,9 +150,9 @@ impl Command for Update<'_> {
                     true => ptr::null(),
                     false => self.blob.as_ptr() as *const _,
                 },
-                FileIdentityLength: self.blob.len() as _,
+                FileIdentityLength: checked_blob_len(self.blob)?,
             },
-        }
+        })
     }
 }
 
@@ -180,7 +160,7 @@ impl Command for Update<'_> {
 #[derive(Debug)]
 pub struct CreatePlaceholders<'a> {
     /// The placeholders to create.
-    pub placeholders: &'a mut [PlaceholderFile],
+    pub placeholders: &'a mut [PlaceholderCreateInfo],
     /// The total amount of placeholders that are a child of the current directory.
     pub total: u64,
 }
@@ -193,30 +173,33 @@ impl Command for CreatePlaceholders<'_> {
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
-    fn build(&self) -> CF_OPERATION_PARAMETERS_0 {
-        CF_OPERATION_PARAMETERS_0 {
+    fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
+        Ok(CF_OPERATION_PARAMETERS_0 {
             TransferPlaceholders: CF_OPERATION_PARAMETERS_0_7 {
                 // TODO: this flag tells the system there are no more placeholders in this directory (when that can be untrue)
                 //       in the future, implement streaming
                 Flags: CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
-                PlaceholderTotalCount: self.total as i64,
+                PlaceholderTotalCount: utility::checked_offset(self.total)?,
                 PlaceholderArray: match self.placeholders.is_empty() {
                     // If the slice is empty there will be an invalid memory access error, not with null pointers, however.
                     true => ptr::null_mut(),
-                    false => self.placeholders.as_ptr() as *mut _,
+                    false => self.placeholders.as_mut_ptr().cast(),
                 },
-                PlaceholderCount: self.placeholders.len() as u32,
+                PlaceholderCount: self.placeholders.len().try_into().map_err(|_| core::Error::from(Foundation::E_INVALIDARG))?,
                 EntriesProcessed: 0,
             },
-        }
+        })
     }
 }
 
 impl Fallible for CreatePlaceholders<'_> {
+    type Context = ();
+
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        _context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result> {
         execute::<Self>(
@@ -252,31 +235,36 @@ impl Command for Validate {
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
-    fn build(&self) -> CF_OPERATION_PARAMETERS_0 {
-        CF_OPERATION_PARAMETERS_0 {
+    fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
+        let (offset, length) = utility::checked_range(self.range.clone())?;
+        Ok(CF_OPERATION_PARAMETERS_0 {
             AckData: CF_OPERATION_PARAMETERS_0_0 {
                 Flags: CloudFilters::CF_OPERATION_ACK_DATA_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
-                Offset: self.range.start as i64,
-                Length: self.range.end as i64,
+                Offset: offset,
+                Length: length,
             },
-        }
+        })
     }
 }
 
 impl Fallible for Validate {
+    type Context = Range<u64>;
+
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        context: Self::Context,
         error_kind: CloudErrorKind,
-    ) -> core::Result<Self::Result> {
+    ) -> core::Result<()> {
+        let (offset, length) = utility::checked_range(context)?;
         execute::<Self>(
             CF_OPERATION_PARAMETERS_0 {
                 AckData: CF_OPERATION_PARAMETERS_0_0 {
                     Flags: CloudFilters::CF_OPERATION_ACK_DATA_FLAG_NONE,
                     CompletionStatus: error_kind.into(),
-                    Offset: 0,
-                    Length: 0,
+                    Offset: offset,
+                    Length: length,
                 },
             },
             connection_key,
@@ -300,8 +288,8 @@ impl Command for Dehydrate<'_> {
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
-    fn build(&self) -> CF_OPERATION_PARAMETERS_0 {
-        CF_OPERATION_PARAMETERS_0 {
+    fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
+        Ok(CF_OPERATION_PARAMETERS_0 {
             AckDehydrate: CF_OPERATION_PARAMETERS_0_1 {
                 Flags: CloudFilters::CF_OPERATION_ACK_DEHYDRATE_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
@@ -309,16 +297,19 @@ impl Command for Dehydrate<'_> {
                     true => ptr::null(),
                     false => self.blob.as_ptr() as *const _,
                 },
-                FileIdentityLength: self.blob.len() as u32,
+                FileIdentityLength: checked_blob_len(self.blob)?,
             },
-        }
+        })
     }
 }
 
 impl Fallible for Dehydrate<'_> {
+    type Context = ();
+
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        _context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result> {
         execute::<Self>(
@@ -348,20 +339,23 @@ impl Command for Delete {
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
-    fn build(&self) -> CF_OPERATION_PARAMETERS_0 {
-        CF_OPERATION_PARAMETERS_0 {
+    fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
+        Ok(CF_OPERATION_PARAMETERS_0 {
             AckDelete: CF_OPERATION_PARAMETERS_0_2 {
                 Flags: CloudFilters::CF_OPERATION_ACK_DELETE_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
             },
-        }
+        })
     }
 }
 
 impl Fallible for Delete {
+    type Context = ();
+
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        _context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result> {
         execute::<Self>(
@@ -389,20 +383,23 @@ impl Command for Rename {
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
-    fn build(&self) -> CF_OPERATION_PARAMETERS_0 {
-        CF_OPERATION_PARAMETERS_0 {
+    fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
+        Ok(CF_OPERATION_PARAMETERS_0 {
             AckRename: CF_OPERATION_PARAMETERS_0_3 {
                 Flags: CloudFilters::CF_OPERATION_ACK_RENAME_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
             },
-        }
+        })
     }
 }
 
 impl Fallible for Rename {
+    type Context = ();
+
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        _context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result> {
         execute::<Self>(
@@ -416,4 +413,11 @@ impl Fallible for Rename {
             transfer_key,
         )
     }
+}
+
+fn checked_blob_len(blob: &[u8]) -> core::Result<u32> {
+    if blob.len() > CloudFilters::CF_PLACEHOLDER_MAX_FILE_IDENTITY_LENGTH as usize {
+        return Err(Foundation::E_INVALIDARG.into());
+    }
+    Ok(blob.len() as u32)
 }

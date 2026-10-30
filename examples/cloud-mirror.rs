@@ -1,6 +1,5 @@
 use std::{
     env,
-    ffi::OsStr,
     fs::{self, File},
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
@@ -13,7 +12,7 @@ use cloud_filter::{
     filter::{info, ticket, Request, SyncFilter},
     metadata::Metadata,
     placeholder::{ConvertOptions, Placeholder},
-    placeholder_file::PlaceholderFile,
+    placeholder_create_info::PlaceholderCreateInfo,
     root::{HydrationType, PopulationType, SecurityId, Session, SyncRootIdBuilder, SyncRootInfo},
     utility::{FileTime, WriteAt},
 };
@@ -84,7 +83,9 @@ impl SyncFilter for CloudMirror {
         info: info::FetchData,
     ) -> CResult<()> {
         // Server path stored in fetch_placeholders
-        let path = Path::new(unsafe { OsStr::from_encoded_bytes_unchecked(request.file_blob()) });
+        let path = Path::new(
+            std::str::from_utf8(request.file_blob()).map_err(|_| CloudErrorKind::InvalidRequest)?,
+        );
 
         let range = info.required_file_range();
         let end = range.end;
@@ -189,7 +190,7 @@ impl SyncFilter for CloudMirror {
                         .ok()
                     })
                     .unwrap_or_default();
-                PlaceholderFile::new(&relative_path)
+                PlaceholderCreateInfo::new(&relative_path)
                     .metadata(
                         match stat.is_dir() {
                             true => Metadata::directory(),
@@ -252,7 +253,9 @@ impl SyncFilter for CloudMirror {
         }
 
         // Server path stored in fetch_placeholders
-        let path = Path::new(unsafe { OsStr::from_encoded_bytes_unchecked(request.file_blob()) });
+        let path = Path::new(
+            std::str::from_utf8(request.file_blob()).map_err(|_| CloudErrorKind::InvalidRequest)?,
+        );
         match info.is_directory() {
             true => fs::remove_dir_all(path).map_err(|_| CloudErrorKind::InvalidRequest)?,
             false => fs::remove_file(path).map_err(|_| CloudErrorKind::InvalidRequest)?,
@@ -298,8 +301,8 @@ impl SyncFilter for CloudMirror {
         println!("renamed");
     }
 
-    fn state_changed(&self, changes: Vec<PathBuf>) {
-        println!("state_changed: {:?}", changes);
+    fn state_changed(&self, event: cloud_filter::filter::StateWatchEvent) {
+        println!("state_changed: {:?}", event);
     }
 }
 

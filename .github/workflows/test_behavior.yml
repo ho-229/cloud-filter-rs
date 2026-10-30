@@ -20,5 +20,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: unit tests
+        run: cargo test --lib --all-features
+
       - name: cargo test
         run: cargo test --test behavior --all-features

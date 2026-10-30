@@ -1,7 +1,6 @@
 use std::{
-    sync::{mpsc::Sender, Arc},
+    sync::{mpsc::Sender, Arc, Weak},
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
 use windows::Win32::Storage::CloudFilters::{CfDisconnectSyncRoot, CF_CONNECTION_KEY};
@@ -18,29 +17,38 @@ pub struct Connection<F> {
     connection_key: RawConnectionKey,
 
     cancel_token: Sender<()>,
-    join_handle: JoinHandle<()>,
+    join_handle: Option<JoinHandle<()>>,
 
     _callbacks: Callbacks,
     filter: Arc<F>,
+    // Windows stores a pointer to the Weak slot, not its allocation.
+    #[allow(clippy::redundant_allocation)]
+    context: Option<Box<Weak<F>>>,
 }
 
 // this struct could house many more windows api functions, although they all seem to do nothing
 // according to the threads on microsoft q&a
 impl<T> Connection<T> {
+    #[allow(clippy::redundant_allocation)]
     pub(crate) fn new(
         connection_key: RawConnectionKey,
         cancel_token: Sender<()>,
-        join_handle: JoinHandle<()>,
         callbacks: Callbacks,
         filter: Arc<T>,
+        context: Box<Weak<T>>,
     ) -> Self {
         Self {
             connection_key,
             cancel_token,
-            join_handle,
+            join_handle: None,
             _callbacks: callbacks,
             filter,
+            context: Some(context),
         }
+    }
+
+    pub(crate) fn set_worker(&mut self, worker: JoinHandle<()>) {
+        self.join_handle = Some(worker);
     }
 
     /// A raw connection key used to identify the connection.
@@ -56,11 +64,19 @@ impl<T> Connection<T> {
 
 impl<T> Drop for Connection<T> {
     fn drop(&mut self) {
-        unsafe { CfDisconnectSyncRoot(CF_CONNECTION_KEY(self.connection_key)) }.unwrap();
+        let disconnected = unsafe { CfDisconnectSyncRoot(CF_CONNECTION_KEY(self.connection_key)) };
+        if let Some(context) = self.context.take() {
+            if disconnected.is_err() {
+                // The platform may still call back after a failed disconnect.
+                Box::leak(context);
+            }
+        }
 
         _ = self.cancel_token.send(());
-        while !self.join_handle.is_finished() {
-            thread::sleep(Duration::from_millis(150));
+        if let Some(worker) = self.join_handle.take() {
+            if worker.thread().id() != thread::current().id() {
+                let _ = worker.join();
+            }
         }
     }
 }
