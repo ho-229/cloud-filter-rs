@@ -4,6 +4,7 @@ use libtest_mimic::{run, Arguments, Trial};
 
 mod async_filter;
 mod placeholder;
+mod properties;
 mod state_watcher;
 mod sync_filter;
 
@@ -18,6 +19,7 @@ fn main() -> ExitCode {
             "placeholder_handles",
             placeholder::placeholder_outputs_and_protected_handles_remain_valid,
         ),
+        Trial::test("custom_states", properties::custom_states_show_in_explorer),
         Trial::test("sync_filter", sync_filter::test),
         Trial::test(
             "state_watch_startup_failures",
