@@ -243,8 +243,10 @@ fn parse_changes(root: &Path, mut bytes: &[u8]) -> core::Result<Vec<PathBuf>> {
             return Err(invalid());
         }
         let name: Vec<u16> = bytes[12..12 + length]
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| u16::from_le_bytes(c))
             .collect();
         paths.push(root.join(OsString::from_wide(&name)));
         if next == 0 {
