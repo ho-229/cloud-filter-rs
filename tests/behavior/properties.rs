@@ -10,6 +10,7 @@ use cloud_filter::{
     error::{CResult, CloudErrorKind},
     filter::{info, ticket, Request, SyncFilter},
     metadata::Metadata,
+    placeholder::{ConvertOptions, Placeholder},
     placeholder_create_info::PlaceholderCreateInfo,
     properties::{set_item_properties, ItemProperty},
     root::{
@@ -118,14 +119,16 @@ pub fn custom_states_show_in_explorer() -> Result<(), Failed> {
         .mark_in_sync()
         .create(&directory.0)
         .context("create file placeholder")?;
-    PlaceholderCreateInfo::new("marked")
-        .metadata(Metadata::directory())
-        .blob(b"folder".to_vec())
-        .has_no_children()
-        .mark_in_sync()
-        .create(&directory.0)
-        .context("create folder placeholder")?;
+    // Creating a folder placeholder that is in sync is refused; converting a plain folder works.
     let (file, folder) = (directory.0.join("marked.txt"), directory.0.join("marked"));
+    fs::create_dir(&folder)?;
+    Placeholder::options()
+        .write_access()
+        .exclusive()
+        .open(&folder)
+        .context("open folder")?
+        .convert_to_placeholder(ConvertOptions::default().mark_in_sync(), None)
+        .context("convert folder")?;
 
     set_item_properties(&file, &[state("on the file")]).context("set on a file")?;
     set_item_properties(&folder, &[state("on the folder")]).context("set on a folder")?;
