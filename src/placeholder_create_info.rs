@@ -144,7 +144,7 @@ impl Drop for PlaceholderCreateInfo {
         if !self.0.FileIdentity.is_null() {
             // Safety: `self.0.FileIdentity` is a valid pointer to a valid slice
             drop(unsafe {
-                Box::from_raw(slice::from_raw_parts_mut(
+                Box::from_raw(ptr::slice_from_raw_parts_mut(
                     self.0.FileIdentity as *mut u8,
                     self.0.FileIdentityLength as _,
                 ))
