@@ -32,8 +32,11 @@ impl TestDirectory {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("cf-properties-{}-{stamp}", std::process::id()));
+        // In the user's profile, as sync roots are: the shell cannot reach the states of an item
+        // under a hidden folder, such as AppData, where the temporary directory is.
+        let profile =
+            std::env::var_os("USERPROFILE").map_or_else(std::env::temp_dir, PathBuf::from);
+        let path = profile.join(format!("cf-properties-{}-{stamp}", std::process::id()));
         fs::create_dir(&path)?;
         Ok(Self(path))
     }
@@ -89,9 +92,9 @@ fn state(value: &str) -> ItemProperty {
 }
 
 pub fn custom_states_show_in_explorer() -> Result<(), Failed> {
-    let directory = TestDirectory::new()?;
+    let directory = TestDirectory::new().context("create the root's directory")?;
     let id = SyncRootIdBuilder::new(directory.0.file_name().unwrap())
-        .user_security_id(SecurityId::current_user()?)
+        .user_security_id(SecurityId::current_user().context("current user")?)
         .build();
     id.register(
         SyncRootInfo::default()
@@ -100,19 +103,27 @@ pub fn custom_states_show_in_explorer() -> Result<(), Failed> {
             .with_version("1.0.0")
             .with_hydration_type(HydrationType::Full)
             .with_population_type(PopulationType::AlwaysFull)
-            .with_item_property_definition(STATE, STATE_NAME)?
-            .with_path(&directory.0)?,
+            .with_item_property_definition(STATE, STATE_NAME)
+            .context("add the definition")?
+            .with_path(&directory.0)
+            .context("set the root's path")?,
     )
     .context("register temporary root")?;
     let registration = Registration(id);
 
     assert_eq!(
-        registration.0.info()?.item_property_definitions(),
+        registration
+            .0
+            .info()
+            .context("read the registration")?
+            .item_property_definitions(),
         vec![(STATE, OsString::from(STATE_NAME))],
         "the registration keeps its definitions"
     );
 
-    let _connection = Session::new().connect(&directory.0, Filter)?;
+    let _connection = Session::new()
+        .connect(&directory.0, Filter)
+        .context("connect")?;
     PlaceholderCreateInfo::new("marked.txt")
         .metadata(Metadata::file().size(0))
         .blob(b"file".to_vec())
@@ -121,7 +132,7 @@ pub fn custom_states_show_in_explorer() -> Result<(), Failed> {
         .context("create file placeholder")?;
     // Creating a folder placeholder that is in sync is refused; converting a plain folder works.
     let (file, folder) = (directory.0.join("marked.txt"), directory.0.join("marked"));
-    fs::create_dir(&folder)?;
+    fs::create_dir(&folder).context("create folder")?;
     Placeholder::options()
         .write_access()
         .exclusive()
