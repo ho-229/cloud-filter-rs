@@ -68,18 +68,27 @@ impl SyncFilter for Filter {
 /// reads them. The property is a serialized blob in which a string may start at an odd offset,
 /// so it is decoded at both.
 fn custom_states(path: &Path) -> anyhow::Result<String> {
-    let script = format!(
-        "$i = (New-Object -ComObject Shell.Application).Namespace('{}').ParseName('{}'); \
-         $v = $i.ExtendedProperty('System.StorageProviderCustomStates'); \
-         if ($v) {{ $b = [byte[]]$v; [Text.Encoding]::Unicode.GetString($b) + '|' + \
-         [Text.Encoding]::Unicode.GetString($b, 1, $b.Length - 1) }}",
-        path.parent().unwrap().display(),
-        path.file_name().unwrap().to_string_lossy()
-    );
     let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .args(["-NoProfile", "-NonInteractive", "-Command", r#"
+            $ErrorActionPreference = 'Stop'
+            [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+            $i = (New-Object -ComObject Shell.Application).Namespace($env:CF_PROPERTY_PARENT).ParseName($env:CF_PROPERTY_NAME)
+            if ($null -eq $i) { throw 'Shell item not found' }
+            $v = $i.ExtendedProperty('System.StorageProviderCustomStates')
+            if ($v) {
+                $b = [byte[]]$v
+                [Text.Encoding]::Unicode.GetString($b) + '|' + [Text.Encoding]::Unicode.GetString($b, 1, $b.Length - 1)
+            }
+        "#])
+        .env("CF_PROPERTY_PARENT", path.parent().unwrap())
+        .env("CF_PROPERTY_NAME", path.file_name().unwrap())
         .output()
         .context("run powershell")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "read custom states: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     Ok(String::from_utf8_lossy(&output.stdout).replace('\0', ""))
 }
 
@@ -105,11 +114,16 @@ pub fn custom_states_show_in_explorer() -> Result<(), Failed> {
             .with_population_type(PopulationType::AlwaysFull)
             .with_item_property_definition(STATE, STATE_NAME)
             .context("add the definition")?
-            .with_path(&directory.0)
+            .with_path(fs::canonicalize(&directory.0)?)
             .context("set the root's path")?,
     )
     .context("register temporary root")?;
     let registration = Registration(id);
+    assert_eq!(
+        SyncRootId::from_path(directory.0.to_string_lossy().replace('\\', "/"))?.as_hstring(),
+        registration.0.as_hstring(),
+        "look up the registered root through a normalized path"
+    );
 
     assert_eq!(
         registration
@@ -124,14 +138,17 @@ pub fn custom_states_show_in_explorer() -> Result<(), Failed> {
     let _connection = Session::new()
         .connect(&directory.0, Filter)
         .context("connect")?;
-    PlaceholderCreateInfo::new("marked.txt")
-        .metadata(Metadata::file().size(0))
+    PlaceholderCreateInfo::new("marked'文件.txt")
+        .metadata(Metadata::file().size(8192))
         .blob(b"file".to_vec())
         .mark_in_sync()
         .create(&directory.0)
         .context("create file placeholder")?;
     // Creating a folder placeholder that is in sync is refused; converting a plain folder works.
-    let (file, folder) = (directory.0.join("marked.txt"), directory.0.join("marked"));
+    let (file, folder) = (
+        directory.0.join("marked'文件.txt"),
+        directory.0.join("marked"),
+    );
     fs::create_dir(&folder).context("create folder")?;
     Placeholder::options()
         .write_access()
@@ -141,16 +158,34 @@ pub fn custom_states_show_in_explorer() -> Result<(), Failed> {
         .convert_to_placeholder(ConvertOptions::default().mark_in_sync(), None)
         .context("convert folder")?;
 
-    set_item_properties(&file, &[state("on the file")]).context("set on a file")?;
+    for (path, value) in [
+        (file.clone(), "absolute path"),
+        (
+            PathBuf::from(file.to_string_lossy().replace('\\', "/")),
+            "forward slashes",
+        ),
+        (fs::canonicalize(&file)?, "扩展路径"),
+    ] {
+        set_item_properties(&path, &[state(value)]).context("set on a file")?;
+        let states = custom_states(&file)?;
+        assert!(states.contains(value), "{states:?}");
+    }
+    let info = Placeholder::open(&file)?.info()?.unwrap();
+    assert_eq!(
+        info.on_disk_data_size(),
+        0,
+        "setting properties must not hydrate"
+    );
+    assert!(info.is_in_sync());
     set_item_properties(&folder, &[state("on the folder")]).context("set on a folder")?;
-    let states = custom_states(&file)?;
-    assert!(states.contains("on the file"), "{states:?}");
     let states = custom_states(&folder)?;
     assert!(states.contains("on the folder"), "{states:?}");
 
-    // None clears them.
+    assert!(custom_states(&directory.0.join("missing.txt")).is_err());
+
+    // An empty list clears them.
     set_item_properties(&file, &[]).context("clear")?;
     let states = custom_states(&file)?;
-    assert!(!states.contains("on the file"), "{states:?}");
+    assert!(!states.contains("扩展路径"), "{states:?}");
     Ok(())
 }

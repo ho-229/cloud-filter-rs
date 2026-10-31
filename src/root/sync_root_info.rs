@@ -7,7 +7,7 @@ use std::{
 use flagset::{flags, FlagSet};
 use widestring::U16String;
 use windows::{
-    core::Result,
+    core::{Result, HSTRING},
     Foundation::Uri,
     Storage::{
         Provider::{
@@ -21,7 +21,7 @@ use windows::{
     },
 };
 
-use crate::utility::ToHString;
+use crate::utility::{storage_path, ToHString};
 
 use super::SyncRootId;
 
@@ -144,16 +144,10 @@ impl SyncRootInfo {
     ///
     /// Returns an error if the path is not a folder.
     pub fn set_path(&mut self, path: impl AsRef<Path>) -> Result<()> {
-        self.0
-            .SetPath(
-                &StorageFolder::GetFolderFromPathAsync(
-                    &U16String::from_os_str(path.as_ref()).to_hstring(),
-                )
-                .unwrap()
-                .get()?,
-            )
-            .unwrap();
-        Ok(())
+        let path = storage_path(path.as_ref())?;
+        self.0.SetPath(
+            &StorageFolder::GetFolderFromPathAsync(&HSTRING::from(path.as_os_str()))?.get()?,
+        )
     }
 
     /// Sets the path of the sync root.

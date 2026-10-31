@@ -1,6 +1,7 @@
 use std::{
     future::Future,
     ops::{Bound, RangeBounds},
+    path::{absolute, Component, Path, PathBuf, Prefix},
     pin::Pin,
 };
 
@@ -27,6 +28,28 @@ where
 }
 
 impl<T: AsRef<[u16]>> ToHString for T {}
+
+// WinRT storage APIs require DOS/UNC paths, without the verbatim prefix.
+pub(crate) fn storage_path(path: &Path) -> core::Result<PathBuf> {
+    let path = absolute(path)?;
+    let Some(Component::Prefix(prefix)) = path.components().next() else {
+        return Ok(path);
+    };
+    let mut normalized = match prefix.kind() {
+        Prefix::VerbatimDisk(drive) => PathBuf::from(format!("{}:\\", char::from(drive))),
+        Prefix::VerbatimUNC(server, share) => PathBuf::from(r"\\").join(server).join(share),
+        _ => return Ok(path),
+    };
+    normalized.extend(path.components().skip(2));
+    // Preserve unsupported verbatim names rather than redirecting them through DOS normalization.
+    Ok(
+        if absolute(&normalized)?.as_os_str() == normalized.as_os_str() {
+            normalized
+        } else {
+            path
+        },
+    )
+}
 
 /// A trait for types that can read data from a file-like object at a specific offset.
 ///
@@ -82,6 +105,24 @@ pub(crate) fn checked_range(range: impl RangeBounds<u64>) -> core::Result<(i64, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_paths_preserve_the_target() {
+        for (input, expected) in [
+            (r"\\?\C:\sync\file.txt", r"C:\sync\file.txt"),
+            (r"\\?\UNC\server\share\file.txt", r"\\server\share\file.txt"),
+            (r"\\?\C:\sync\file.", r"\\?\C:\sync\file."),
+        ] {
+            assert_eq!(
+                storage_path(Path::new(input)).unwrap().as_os_str(),
+                expected
+            );
+        }
+        assert_eq!(
+            storage_path(Path::new("./item.txt")).unwrap(),
+            std::env::current_dir().unwrap().join("item.txt")
+        );
+    }
 
     #[test]
     fn ranges_preserve_offset_and_length() {
