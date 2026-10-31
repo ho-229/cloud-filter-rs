@@ -23,7 +23,7 @@ use windows::{
     },
 };
 
-use crate::utility::ToHString;
+use crate::utility::{storage_path, ToHString};
 
 use super::SyncRootInfo;
 
@@ -127,15 +127,11 @@ impl SyncRootId {
 
     /// Creates a [SyncRootId] from the sync root at the given path.
     pub fn from_path<P: AsRef<Path>>(path: P) -> core::Result<Self> {
-        // if the id is coming from a sync root, then it must be valid
+        let path = storage_path(path.as_ref())?;
         StorageProviderSyncRootManager::GetSyncRootInformationForFolder(
-            &StorageFolder::GetFolderFromPathAsync(
-                &U16String::from_os_str(path.as_ref()).to_hstring(),
-            )
-            .unwrap()
-            .get()?,
+            &StorageFolder::GetFolderFromPathAsync(&HSTRING::from(path.as_os_str()))?.get()?,
         )
-        .map(|info| SyncRootId(info.Id().unwrap()))
+        .and_then(|info| info.Id().map(Self))
     }
 
     /// Whether or not the [SyncRootId] has already been registered.

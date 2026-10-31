@@ -13,6 +13,8 @@ pub mod metadata;
 pub mod placeholder;
 /// Contains the [PlaceholderCreateInfo][crate::placeholder_create_info::PlaceholderCreateInfo] struct.
 pub mod placeholder_create_info;
+/// Contains [properties::set_item_properties], the provider's own states Explorer shows.
+pub mod properties;
 /// Contains the sync root structs.
 pub mod root;
 pub mod usn;

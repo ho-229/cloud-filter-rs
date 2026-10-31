@@ -42,6 +42,7 @@ windows = { version = "0.58.0", features = [
   "Storage_Streams",
   "Win32_System_Ioctl",
   "Win32_Security",
+  "implement",
 ] }
 globset = { version = "0.4.9", optional = true }
 

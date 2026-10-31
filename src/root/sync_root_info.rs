@@ -7,21 +7,21 @@ use std::{
 use flagset::{flags, FlagSet};
 use widestring::U16String;
 use windows::{
-    core::Result,
+    core::{Result, HSTRING},
     Foundation::Uri,
     Storage::{
         Provider::{
             StorageProviderHardlinkPolicy, StorageProviderHydrationPolicy,
             StorageProviderHydrationPolicyModifier, StorageProviderInSyncPolicy,
-            StorageProviderPopulationPolicy, StorageProviderProtectionMode,
-            StorageProviderSyncRootInfo,
+            StorageProviderItemPropertyDefinition, StorageProviderPopulationPolicy,
+            StorageProviderProtectionMode, StorageProviderSyncRootInfo,
         },
         StorageFolder,
         Streams::{DataReader, DataWriter},
     },
 };
 
-use crate::utility::ToHString;
+use crate::utility::{storage_path, ToHString};
 
 use super::SyncRootId;
 
@@ -144,16 +144,10 @@ impl SyncRootInfo {
     ///
     /// Returns an error if the path is not a folder.
     pub fn set_path(&mut self, path: impl AsRef<Path>) -> Result<()> {
-        self.0
-            .SetPath(
-                &StorageFolder::GetFolderFromPathAsync(
-                    &U16String::from_os_str(path.as_ref()).to_hstring(),
-                )
-                .unwrap()
-                .get()?,
-            )
-            .unwrap();
-        Ok(())
+        let path = storage_path(path.as_ref())?;
+        self.0.SetPath(
+            &StorageFolder::GetFolderFromPathAsync(&HSTRING::from(path.as_os_str()))?.get()?,
+        )
     }
 
     /// Sets the path of the sync root.
@@ -299,6 +293,43 @@ impl SyncRootInfo {
     pub fn with_icon(mut self, icon: impl AsRef<OsStr>) -> Self {
         self.set_icon(icon);
         self
+    }
+
+    /// The custom item properties of the sync root registration, as their ids and display
+    /// names: states of the provider's own that Explorer shows for its items, in the Status
+    /// column, once [crate::properties::set_item_properties] gives an item one.
+    pub fn item_property_definitions(&self) -> Vec<(i32, OsString)> {
+        let Ok(definitions) = self.0.StorageProviderItemPropertyDefinitions() else {
+            return Vec::new();
+        };
+        definitions
+            .into_iter()
+            .filter_map(|d| Some((d.Id().ok()?, d.DisplayNameResource().ok()?.to_os_string())))
+            .collect()
+    }
+
+    /// Adds a custom item property to the sync root registration, `id` with `display_name`.
+    pub fn add_item_property_definition(
+        &mut self,
+        id: i32,
+        display_name: impl AsRef<OsStr>,
+    ) -> Result<()> {
+        let definition = StorageProviderItemPropertyDefinition::new()?;
+        definition.SetId(id)?;
+        definition.SetDisplayNameResource(&U16String::from_os_str(&display_name).to_hstring())?;
+        self.0
+            .StorageProviderItemPropertyDefinitions()?
+            .Append(&definition)
+    }
+
+    /// Adds a custom item property to the sync root registration, `id` with `display_name`.
+    pub fn with_item_property_definition(
+        mut self,
+        id: i32,
+        display_name: impl AsRef<OsStr>,
+    ) -> Result<Self> {
+        self.add_item_property_definition(id, display_name)?;
+        Ok(self)
     }
 
     /// The identifier of the sync root registration.
