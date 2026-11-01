@@ -162,9 +162,11 @@ impl FetchPlaceholders {
         }
     }
 
-    /// Creates a list of placeholder files/directorys on the file system.
+    /// Creates the remaining placeholders in this directory and completes its population.
     ///
-    /// The value returned is the final [Usn][crate::usn::Usn] (and if they succeeded) after each placeholder is created.
+    /// Attempts every entry and returns the first error, if any. Each entry's
+    /// [PlaceholderCreateInfo::result] contains its creation result and USN.
+    /// An empty slice completes an empty directory; a failed batch leaves it incomplete.
     pub fn pass_with_placeholder(
         &self,
         placeholders: &mut [PlaceholderCreateInfo],

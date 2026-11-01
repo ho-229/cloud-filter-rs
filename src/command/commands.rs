@@ -18,7 +18,7 @@ use crate::{
     error::CloudErrorKind,
     filter::{RawConnectionKey, RawTransferKey},
     metadata::Metadata,
-    placeholder_create_info::PlaceholderCreateInfo,
+    placeholder_create_info::{create_individually, PlaceholderCreateInfo},
     utility,
 };
 
@@ -173,11 +173,39 @@ impl Command for CreatePlaceholders<'_> {
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
+    fn execute(
+        &mut self,
+        connection_key: RawConnectionKey,
+        transfer_key: RawTransferKey,
+    ) -> core::Result<Self::Result> {
+        let mut parameters = self.build()?;
+        let total = utility::checked_offset(self.total)?;
+        // Reserve completion for the final empty transfer; reaching the total
+        // earlier can finish the request before that transfer is submitted.
+        parameters.TransferPlaceholders.PlaceholderTotalCount =
+            total.max(self.placeholders.len() as i64 + 1);
+        parameters.TransferPlaceholders.Flags =
+            CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE;
+        parameters.TransferPlaceholders.PlaceholderCount = 1;
+        create_individually(self.placeholders, |entry| {
+            parameters.TransferPlaceholders.PlaceholderArray = entry;
+            execute::<Self>(parameters, connection_key, transfer_key)
+        })?;
+
+        // Check every entry before completing population: even the final
+        // CfExecute can succeed with a failing per-entry Result.
+        parameters.TransferPlaceholders.Flags =
+            CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION;
+        parameters.TransferPlaceholders.PlaceholderArray = ptr::null_mut();
+        parameters.TransferPlaceholders.PlaceholderCount = 0;
+        parameters.TransferPlaceholders.PlaceholderTotalCount = total;
+        execute::<Self>(parameters, connection_key, transfer_key)
+    }
+
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         Ok(CF_OPERATION_PARAMETERS_0 {
             TransferPlaceholders: CF_OPERATION_PARAMETERS_0_7 {
-                // TODO: this flag tells the system there are no more placeholders in this directory (when that can be untrue)
-                //       in the future, implement streaming
+                // execute() completes population separately after checking every result.
                 Flags: CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
                 PlaceholderTotalCount: utility::checked_offset(self.total)?,

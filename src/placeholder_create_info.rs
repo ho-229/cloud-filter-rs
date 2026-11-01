@@ -154,21 +154,46 @@ impl Drop for PlaceholderCreateInfo {
 }
 
 /// Creates multiple placeholder file/directories within the given path.
+///
+/// Attempts every entry and returns the first error, if any. Each entry's
+/// [PlaceholderCreateInfo::result] retains its own result.
 pub trait BatchCreate: sealed::Sealed {
     fn create<P: AsRef<Path>>(&mut self, path: P) -> core::Result<()>;
 }
 
 impl BatchCreate for [PlaceholderCreateInfo] {
     fn create<P: AsRef<Path>>(&mut self, path: P) -> core::Result<()> {
-        unsafe {
+        if self.is_empty() {
+            return Ok(());
+        }
+        let path = U16CString::from_os_str(path.as_ref()).unwrap();
+        create_individually(self, |entry| unsafe {
             CfCreatePlaceholders(
-                PCWSTR(U16CString::from_os_str(path.as_ref()).unwrap().as_ptr()),
-                slice::from_raw_parts_mut(self.as_mut_ptr() as *mut _, self.len()),
+                PCWSTR(path.as_ptr()),
+                slice::from_mut(entry),
                 CloudFilters::CF_CREATE_FLAG_NONE,
                 None,
             )
-        }
+        })
     }
 }
 
 impl sealed::Sealed for [PlaceholderCreateInfo] {}
+
+pub(crate) fn create_individually(
+    placeholders: &mut [PlaceholderCreateInfo],
+    mut create: impl FnMut(&mut CF_PLACEHOLDER_CREATE_INFO) -> core::Result<()>,
+) -> core::Result<()> {
+    // CldFlt on Windows 10 build 19044 can retain compression flags between
+    // batch entries, corrupting even equal-length identities. Isolate each
+    // native call; sorting by identity length is insufficient.
+    // https://learn.microsoft.com/en-us/answers/questions/6057324/
+    let mut result = Ok(());
+    for entry in placeholders {
+        let created = create(&mut entry.0);
+        // CfExecute can succeed while the individual entry failed.
+        // Keep attempting later entries, preserving the first error.
+        result = result.and(created).and(entry.0.Result.ok());
+    }
+    result
+}
