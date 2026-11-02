@@ -12,6 +12,7 @@ mod sync_filter;
 fn main() -> ExitCode {
     let args = Arguments::from_args();
     let tests = vec![
+        Trial::test("sync_root_membership", lifecycle::sync_root_membership),
         Trial::test("registration_lifecycle", lifecycle::registration_lifecycle),
         Trial::test("callback_triggers", lifecycle::callback_triggers),
         Trial::test(

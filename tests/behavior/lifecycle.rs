@@ -463,6 +463,52 @@ impl Drop for Client {
     }
 }
 
+pub fn sync_root_membership() -> Result<(), Failed> {
+    let root = Root::new()?;
+    fs::create_dir(root.path.join("ordinary"))?;
+    fs::write(root.path.join("ordinary/local.txt"), b"local contents")?;
+    let open_file = |path: &Path| {
+        OpenOptions::new()
+            .access_mode(windows::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES.0)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+            .open(path)
+    };
+    let directory = open_file(&root.path)?;
+    let nested = open_file(&root.path.join("ordinary"))?;
+    let file = open_file(&root.path.join("ordinary/local.txt"))?;
+    assert!(!directory.in_sync_root()?);
+    assert!(!file.in_sync_root()?);
+
+    root.register(false)?;
+    root.file("offline.bin")?;
+    let offline = open_file(&root.path.join("offline.bin"))?;
+    let connection = Session::new().connect(&root.path, Probe::default())?;
+    for handle in [&directory, &nested, &file, &offline] {
+        assert!(handle.in_sync_root()?);
+    }
+    assert!(!open_file(root.path.parent().unwrap())?.in_sync_root()?);
+    drop(connection);
+    // Membership follows registration, not connection or placeholder state.
+    for handle in [&directory, &nested, &file, &offline] {
+        assert!(handle.in_sync_root()?);
+    }
+    assert_eq!(
+        open(&root.path.join("offline.bin"))?
+            .info()?
+            .unwrap()
+            .on_disk_data_size(),
+        0,
+        "membership queries must not hydrate data"
+    );
+    drop(offline);
+    root.id.unregister()?;
+    assert!(!directory.in_sync_root()?);
+    assert!(!file.in_sync_root()?);
+    // Unsupported handles must report an error rather than look like ordinary files.
+    assert!(fs::File::open("NUL")?.in_sync_root().is_err());
+    Ok(())
+}
+
 pub fn registration_lifecycle() -> Result<(), Failed> {
     registration_lifecycle_inner().map_err(Into::into)
 }

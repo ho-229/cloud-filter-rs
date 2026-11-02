@@ -9,9 +9,10 @@ use widestring::U16CStr;
 use windows::{
     core,
     Win32::{
-        Foundation::HANDLE,
+        Foundation::{ERROR_CLOUD_FILE_NOT_UNDER_SYNC_ROOT, HANDLE},
         Storage::CloudFilters::{
-            self, CfDehydratePlaceholder, CF_SYNC_PROVIDER_STATUS, CF_SYNC_ROOT_STANDARD_INFO,
+            self, CfDehydratePlaceholder, CfGetSyncRootInfoByHandle, CF_SYNC_PROVIDER_STATUS,
+            CF_SYNC_ROOT_BASIC_INFO, CF_SYNC_ROOT_STANDARD_INFO,
         },
     },
 };
@@ -31,10 +32,29 @@ pub trait FileExt: AsRawHandle + Sealed {
         dehydrate(self.as_raw_handle(), range, true)
     }
 
-    /// Returns whether or not the handle is inside of a sync root.
-    fn in_sync_root() -> core::Result<bool> {
-        // TODO: this should use the uwp apis
-        todo!()
+    /// Returns whether this file or directory belongs to a registered sync root,
+    /// including the root itself and ordinary files that are not placeholders.
+    ///
+    /// Queries native registration without hydrating data or requiring a connected
+    /// provider. The handle needs `FILE_READ_ATTRIBUTES` access. Other query errors
+    /// are returned rather than treated as absence of a sync root.
+    fn in_sync_root(&self) -> core::Result<bool> {
+        let mut info = CF_SYNC_ROOT_BASIC_INFO::default();
+        match unsafe {
+            CfGetSyncRootInfoByHandle(
+                HANDLE(self.as_raw_handle()),
+                CloudFilters::CF_SYNC_ROOT_INFO_BASIC,
+                (&mut info as *mut CF_SYNC_ROOT_BASIC_INFO).cast(),
+                mem::size_of_val(&info) as u32,
+                None,
+            )
+        } {
+            Ok(()) => Ok(true),
+            Err(error) if error.code() == ERROR_CLOUD_FILE_NOT_UNDER_SYNC_ROOT.to_hresult() => {
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -158,7 +178,7 @@ impl From<CF_SYNC_PROVIDER_STATUS> for ProviderStatus {
             CloudFilters::CF_PROVIDER_STATUS_DISCONNECTED => Self::Disconnected,
             CloudFilters::CF_PROVIDER_STATUS_IDLE => Self::Idle,
             CloudFilters::CF_PROVIDER_STATUS_POPULATE_NAMESPACE => Self::PopulateNamespace,
-            CloudFilters::CF_PROVIDER_STATUS_POPULATE_METADATA => Self::PopulateContent,
+            CloudFilters::CF_PROVIDER_STATUS_POPULATE_METADATA => Self::PopulateMetadata,
             CloudFilters::CF_PROVIDER_STATUS_POPULATE_CONTENT => Self::PopulateContent,
             CloudFilters::CF_PROVIDER_STATUS_SYNC_INCREMENTAL => Self::SyncIncremental,
             CloudFilters::CF_PROVIDER_STATUS_SYNC_FULL => Self::SyncFull,
