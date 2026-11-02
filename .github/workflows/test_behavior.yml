@@ -23,5 +23,19 @@ jobs:
       - name: unit tests
         run: cargo test --lib --all-features
 
+      - name: example behavior
+        env:
+          SFTPGO_TEST_EXE: ${{ github.workspace }}\target\sftpgo-2.7.6\sftpgo.exe
+        run: |
+          New-Item -ItemType Directory -Force target | Out-Null
+          Invoke-WebRequest 'https://github.com/drakkan/sftpgo/releases/download/v2.7.6/sftpgo_v2.7.6_windows_portable.zip' -OutFile target/sftpgo.zip
+          if ((Get-FileHash target/sftpgo.zip -Algorithm SHA256).Hash -ne 'af3994bb690962c7575858aee368a4c1d6fd4748b35770bb0773eb06408d504d') {
+            throw 'SFTPGo checksum mismatch'
+          }
+          Expand-Archive target/sftpgo.zip target/sftpgo-2.7.6
+          cargo build --example cf-cli --all-features
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --example cloud-mirror --example sftp --all-features -- --test-threads=1
+
       - name: cargo test
         run: cargo test --test behavior --all-features
