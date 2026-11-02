@@ -114,10 +114,11 @@ impl Fallible for Write<'_> {
     }
 }
 
-/// Update various properties on a placeholder.
+/// Discard resident data and restart pending hydration with optional new metadata.
 #[derive(Debug)]
-#[allow(dead_code)]
-pub struct Update<'a> {
+pub struct RestartHydration<'a> {
+    /// Current size reported by the callback, used to reject unsupported resizing.
+    pub file_size: u64,
     /// Whether or not to mark the placeholder as "synced."
     pub mark_in_sync: bool,
     /// Optional metadata to update.
@@ -126,7 +127,7 @@ pub struct Update<'a> {
     pub blob: &'a [u8],
 }
 
-impl Command for Update<'_> {
+impl Command for RestartHydration<'_> {
     const OPERATION: CF_OPERATION_TYPE = CloudFilters::CF_OPERATION_TYPE_RESTART_HYDRATION;
 
     type Result = ();
@@ -135,6 +136,13 @@ impl Command for Update<'_> {
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
+        // Resizing pending hydration stalled in CldFlt on Windows 10 build 19044.
+        if self
+            .metadata
+            .is_some_and(|metadata| metadata.0.FileSize as u64 != self.file_size)
+        {
+            return Err(Foundation::ERROR_NOT_SUPPORTED.into());
+        }
         Ok(CF_OPERATION_PARAMETERS_0 {
             RestartHydration: CF_OPERATION_PARAMETERS_0_4 {
                 Flags: if self.mark_in_sync {

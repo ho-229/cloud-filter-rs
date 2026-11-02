@@ -9,15 +9,50 @@ use crate::{
     command::{self, Command, Fallible},
     error::CloudErrorKind,
     filter::{RawConnectionKey, RawTransferKey},
+    metadata::Metadata,
     placeholder_create_info::PlaceholderCreateInfo,
     sealed, utility,
 };
+
+/// Optional changes applied when restarting hydration.
+///
+/// Defaults preserve metadata and identity. Restarting discards all resident data,
+/// even when no changes are supplied. Only `HydrationType::Full` is supported.
+#[derive(Debug, Clone, Default)]
+pub struct RestartHydrationOptions<'a> {
+    metadata: Option<Metadata>,
+    blob: &'a [u8],
+    mark_in_sync: bool,
+}
+
+impl<'a> RestartHydrationOptions<'a> {
+    /// Replaces metadata during restart. Preserve the size from [`Request::file_size`][crate::filter::Request::file_size];
+    /// size changes return `ERROR_NOT_SUPPORTED` because resizing pending hydration
+    /// stalled on Windows 10 build 19044. Zero timestamps or attributes preserve those fields.
+    pub fn metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Replaces the file identity. An empty slice preserves the current identity.
+    pub fn blob(mut self, blob: &'a [u8]) -> Self {
+        self.blob = blob;
+        self
+    }
+
+    /// Marks the placeholder in sync when restart succeeds.
+    pub fn mark_in_sync(mut self) -> Self {
+        self.mark_in_sync = true;
+        self
+    }
+}
 
 /// A ticket for the [SyncFilter::fetch_data][crate::filter::SyncFilter::fetch_data] callback.
 #[derive(Debug)]
 pub struct FetchData {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    file_size: u64,
     /// The range the platform asked for, which failing the fetch names.
     range: Range<u64>,
 }
@@ -27,11 +62,13 @@ impl FetchData {
     pub(crate) fn new(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        file_size: u64,
         range: Range<u64>,
     ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            file_size,
             range,
         }
     }
@@ -65,7 +102,22 @@ impl FetchData {
         Ok(())
     }
 
-    // TODO: response command::Update
+    /// Restarts hydration after a remote version change or invalid downloaded data.
+    ///
+    /// Requires `HydrationType::Full`. On success, stop servicing this callback:
+    /// Windows discards resident data and reissues pending I/O as new callbacks.
+    /// This does not replace normal placeholder updates or resolve version conflicts.
+    /// If restart fails, return an error from the callback or explicitly fail the
+    /// fetch; a rejected restart need not complete the pending read.
+    pub fn restart_hydration(&self, options: RestartHydrationOptions<'_>) -> core::Result<()> {
+        command::RestartHydration {
+            file_size: self.file_size,
+            metadata: options.metadata,
+            blob: options.blob,
+            mark_in_sync: options.mark_in_sync,
+        }
+        .execute(self.connection_key, self.transfer_key)
+    }
 }
 
 impl utility::ReadAt for FetchData {
@@ -104,14 +156,20 @@ impl sealed::Sealed for FetchData {}
 pub struct ValidateData {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    file_size: u64,
 }
 
 impl ValidateData {
     /// Create a new [ValidateData].
-    pub(crate) fn new(connection_key: RawConnectionKey, transfer_key: RawTransferKey) -> Self {
+    pub(crate) fn new(
+        connection_key: RawConnectionKey,
+        transfer_key: RawTransferKey,
+        file_size: u64,
+    ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            file_size,
         }
     }
 
@@ -125,7 +183,17 @@ impl ValidateData {
         command::Validate { range }.execute(self.connection_key, self.transfer_key)
     }
 
-    // TODO: response command::Update
+    /// Discards invalid data and restarts pending hydration instead of acknowledging it.
+    /// See [`FetchData::restart_hydration`] for the policy and callback requirements.
+    pub fn restart_hydration(&self, options: RestartHydrationOptions<'_>) -> core::Result<()> {
+        command::RestartHydration {
+            file_size: self.file_size,
+            metadata: options.metadata,
+            blob: options.blob,
+            mark_in_sync: options.mark_in_sync,
+        }
+        .execute(self.connection_key, self.transfer_key)
+    }
 }
 
 impl utility::ReadAt for ValidateData {

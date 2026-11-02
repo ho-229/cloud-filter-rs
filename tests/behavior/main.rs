@@ -8,11 +8,13 @@ mod lifecycle;
 mod placeholder;
 mod properties;
 mod state_watcher;
+mod tickets;
 
 fn main() -> ExitCode {
     let args = Arguments::from_args();
     let tests = vec![
         Trial::test("file_usn", placeholder::file_usn_tracks_changes),
+        Trial::test("restart_hydration", tickets::restart_hydration),
         Trial::test("sync_root_membership", lifecycle::sync_root_membership),
         Trial::test("registration_lifecycle", lifecycle::registration_lifecycle),
         Trial::test("callback_triggers", lifecycle::callback_triggers),

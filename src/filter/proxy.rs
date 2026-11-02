@@ -98,7 +98,12 @@ unsafe fn fetch_data<T: SyncFilter + 'static>(
         let transfer_key = request.transfer_key();
         let info = info::FetchData((*params).Anonymous.FetchData);
         let range = info.required_file_range();
-        let ticket = ticket::FetchData::new(connection_key, transfer_key, range.clone());
+        let ticket = ticket::FetchData::new(
+            connection_key,
+            transfer_key,
+            request.file_size(),
+            range.clone(),
+        );
 
         let Err(e) = filter.fetch_data(request, ticket, info) else {
             return;
@@ -120,7 +125,7 @@ unsafe fn validate_data<T: SyncFilter + 'static>(
         let transfer_key = request.transfer_key();
         let info = info::ValidateData((*params).Anonymous.ValidateData);
         let range = info.file_range();
-        let ticket = ticket::ValidateData::new(connection_key, transfer_key);
+        let ticket = ticket::ValidateData::new(connection_key, transfer_key, request.file_size());
 
         let Err(e) = filter.validate_data(request, ticket, info) else {
             return;

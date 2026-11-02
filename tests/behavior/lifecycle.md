@@ -33,6 +33,12 @@ The acknowledgment regression sets and clears delete disposition before close: `
 
 Both cancellation callbacks arrived after about 60 seconds with `timeout=true` and no process information; use `Request::try_process()`. Killing the reader did not reliably produce an immediate cancellation in an earlier probe. The slow timeout test is opt-in. Windows defines the [timeout and user-cancel flags](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ne-cfapi-cf_callback_cancel_flags); callback counts/order should not be treated as a transaction log. Storage Sense, Recycle Bin, cross-root moves and Windows 11 have not been tested here.
 
+The hydration restart probes in [tickets.rs](tickets.rs) add these observations on the same Windows 10 build:
+
+* FULL hydration can restart from either fetch or validation. Defaults preserve metadata/identity; updating timestamps, identity and InSync while preserving size succeeds. The pending read returns replacement data, including an unaligned EOF, without exposing the bytes rejected by validation.
+* PARTIAL restart returned `ERROR_CLOUD_FILE_INVALID_REQUEST`, whereas the [native documentation](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ns-cfapi-cf_operation_parameters) specifies `STATUS_CLOUD_FILE_NOT_SUPPORTED`. A rejected restart did not itself complete the pending read; the provider must still fail or service it.
+* Restarting with a size change from 8192 to 4097 stalled inside `CfExecute`. Moving the operation off the callback thread, preserving the callback RequestKey, allowing read/write/delete sharing, preserving attributes, and blocking provider self-hydration did not resolve it. Same-size metadata updates succeeded. The wrapper therefore rejects size changes with `ERROR_NOT_SUPPORTED` before calling Windows; this is a library restriction based on this host, not a documented CFAPI restriction. The BT verifies rejection leaves the ticket usable. This does not establish the behavior of other Windows builds.
+
 The bridge registers every callback, so a default `NotSupported` handler rejects the operation instead of omitting the callback. An approval ticket permits the local operation; it does not make a remote mutation atomic with that operation. `state_changed` is a separate directory watcher for pin/attribute changes. Lost notifications trigger a batched root scan; disconnected periods still need provider-side reconciliation.
 
 ```powershell

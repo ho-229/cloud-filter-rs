@@ -46,12 +46,20 @@ impl Root {
     }
 
     pub fn register(&self, validation: bool) -> anyhow::Result<()> {
+        self.register_with_hydration(HydrationType::Partial, validation)
+    }
+
+    pub fn register_with_hydration(
+        &self,
+        hydration: HydrationType,
+        validation: bool,
+    ) -> anyhow::Result<()> {
         self.id.register(
             SyncRootInfo::default()
                 .with_display_name("Cloud Filter Behavior Test")
                 .with_icon("%SystemRoot%\\system32\\charmap.exe,0")
                 .with_version("1.0.0")
-                .with_hydration_type(HydrationType::Partial)
+                .with_hydration_type(hydration)
                 .with_hydration_policy(if validation {
                     HydrationPolicy::ValidationRequired | HydrationPolicy::AutoDehydrationAllowed
                 } else {
