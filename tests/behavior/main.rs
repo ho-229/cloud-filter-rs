@@ -12,6 +12,7 @@ mod state_watcher;
 fn main() -> ExitCode {
     let args = Arguments::from_args();
     let tests = vec![
+        Trial::test("file_usn", placeholder::file_usn_tracks_changes),
         Trial::test("sync_root_membership", lifecycle::sync_root_membership),
         Trial::test("registration_lifecycle", lifecycle::registration_lifecycle),
         Trial::test("callback_triggers", lifecycle::callback_triggers),

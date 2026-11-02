@@ -10,14 +10,8 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_REPARSE_POINT, FILE_SHARE_READ};
-use windows::Win32::{
-    Foundation::HANDLE,
-    System::{
-        Ioctl::{FSCTL_READ_FILE_USN_DATA, READ_FILE_USN_DATA, USN_RECORD_V2},
-        IO::DeviceIoControl,
-    },
-};
 
 pub(super) const STAGING_PREFIX: &str = ".cloud-mirror-upload-";
 
@@ -242,7 +236,7 @@ impl MirrorFiles {
                 None,
             )?;
         }
-        let usn = file_usn(&source)?;
+        let usn = source.usn()?;
         ensure!(usn != 0, "Windows did not return a file USN");
 
         let (staging, mut output) =
@@ -260,7 +254,7 @@ impl MirrorFiles {
         )?;
         output.sync_all()?;
         drop(output);
-        let current_usn = file_usn(&source)?;
+        let current_usn = source.usn()?;
         ensure!(
             current_usn == usn,
             "file changed during upload: {usn} -> {current_usn}"
@@ -399,39 +393,6 @@ fn copy_upload(
         copied_until = range.end;
     }
     Ok(uploaded)
-}
-
-fn file_usn(file: &File) -> anyhow::Result<i64> {
-    let versions = READ_FILE_USN_DATA {
-        MinMajorVersion: 2,
-        MaxMajorVersion: 2,
-    };
-    // A V2 record plus the maximum NTFS filename fits in this aligned buffer.
-    let mut buffer = [0u64; 128];
-    let mut returned = 0;
-    unsafe {
-        DeviceIoControl(
-            HANDLE(file.as_raw_handle()),
-            FSCTL_READ_FILE_USN_DATA,
-            Some((&versions as *const READ_FILE_USN_DATA).cast()),
-            std::mem::size_of_val(&versions) as u32,
-            Some(buffer.as_mut_ptr().cast()),
-            std::mem::size_of_val(&buffer) as u32,
-            Some(&mut returned),
-            None,
-        )?;
-    }
-    ensure!(
-        returned as usize >= std::mem::size_of::<USN_RECORD_V2>(),
-        "short USN record"
-    );
-    // The entire fixed header was initialized by Windows; don't borrow its flexible tail.
-    let record = unsafe { buffer.as_ptr().cast::<USN_RECORD_V2>().read_unaligned() };
-    ensure!(
-        record.MajorVersion == 2 && record.RecordLength <= returned,
-        "unexpected USN record"
-    );
-    Ok(record.Usn)
 }
 
 // Only remove the temporary file this instance successfully created.

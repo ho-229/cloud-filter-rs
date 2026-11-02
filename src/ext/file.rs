@@ -17,10 +17,21 @@ use windows::{
     },
 };
 
-use crate::{sealed::Sealed, utility};
+use crate::{sealed::Sealed, usn, utility};
 
 /// An API extension to [File][std::fs::File].
 pub trait FileExt: AsRawHandle + Sealed {
+    /// Reads the latest journaled USN through a file or directory handle.
+    /// This waits for completion, including on handles opened for overlapped I/O.
+    /// This queries NTFS V2 records without reading file contents or hydrating data.
+    /// Unsupported filesystems and device errors are returned unchanged.
+    ///
+    /// A USN comparison does not lock the file; callers must still exclude writes
+    /// while publishing data and marking it in sync.
+    fn usn(&self) -> core::Result<usn::Usn> {
+        usn::read(self.as_raw_handle())
+    }
+
     /// Dehydrates a placeholder file.
     fn dehydrate<T: RangeBounds<u64>>(&self, range: T) -> core::Result<()> {
         dehydrate(self.as_raw_handle(), range, false)

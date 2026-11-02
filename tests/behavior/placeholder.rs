@@ -9,6 +9,7 @@ use std::{
 use anyhow::Context;
 use cloud_filter::{
     error::{CResult, CloudErrorKind},
+    ext::FileExt,
     filter::{info, ticket, Request, SyncFilter},
     metadata::Metadata,
     placeholder::{Placeholder, UpdateOptions},
@@ -20,10 +21,42 @@ use windows::Wdk::Storage::FileSystem::{
     RtlQueryThreadPlaceholderCompatibilityMode, RtlSetThreadPlaceholderCompatibilityMode,
 };
 use windows::Win32::Storage::FileSystem::{
-    GetFileType, FILE_FLAG_BACKUP_SEMANTICS, FILE_TYPE_DISK,
+    GetFileType, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_READ_ATTRIBUTES,
+    FILE_TYPE_DISK,
 };
 
 use super::common::{open, Root};
+
+pub fn file_usn_tracks_changes() -> Result<(), Failed> {
+    let root = Root::new()?;
+    let path = root.path.join("local.txt");
+    fs::write(&path, b"original")?;
+    let file = File::open(&path)?;
+    let before = file.usn()?;
+    assert!(before > 0);
+    fs::write(&path, b"changed after the first query")?;
+    assert!(file.usn()? > before, "query the latest journaled change");
+    let overlapped = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OVERLAPPED.0)
+        .open(&path)?;
+    assert_eq!(overlapped.usn()?, file.usn()?);
+    assert!(File::open("NUL")?.usn().is_err());
+
+    root.register(false)?;
+    root.file("offline.bin")?;
+    let offline = OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .open(root.path.join("offline.bin"))?;
+    assert!(offline.usn()? > 0);
+    let placeholder = Placeholder::from(offline);
+    assert_eq!(
+        placeholder.info()?.unwrap().on_disk_data_size(),
+        0,
+        "USN queries must not hydrate data"
+    );
+    Ok(())
+}
 
 pub fn file_round_trip_transfers_ownership() -> Result<(), Failed> {
     let directory = Root::new()?;
