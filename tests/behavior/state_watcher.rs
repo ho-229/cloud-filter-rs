@@ -65,6 +65,8 @@ impl Directory {
 }
 
 impl Drop for Directory {
+    // This Windows-only test clears the readonly attribute, not Unix permission bits.
+    #[allow(clippy::permissions_set_readonly_false)]
     fn drop(&mut self) {
         if let Some(id) = &self.registration {
             if let Err(error) = id.unregister() {
@@ -158,22 +160,28 @@ pub fn startup_failures() -> Result<(), Failed> {
     Ok(())
 }
 
-pub fn unicode_paths_and_shutdown() -> Result<(), Failed> {
+pub fn changes_and_reconnect() -> Result<(), Failed> {
     let mut directory = Directory::new();
     let path = directory.file("中文.txt");
     directory.register();
-    let (send, receive) = mpsc::channel();
-    let connection = Session::new().connect(&directory.path, Filter::new(send))?;
-    change(&path);
-    changed(&receive, &path);
-    drop(connection);
-    assert!(receive
-        .try_iter()
-        .all(|e| !matches!(e, StateWatchEvent::Stopped(_))));
-    assert!(matches!(
-        receive.try_recv(),
-        Err(mpsc::TryRecvError::Disconnected)
-    ));
+    // Both an active watcher and an idle pending read must disconnect silently;
+    // reconnecting afterward must still deliver changes.
+    for active in [true, false, true] {
+        let (send, receive) = mpsc::channel();
+        let connection = Session::new().connect(&directory.path, Filter::new(send))?;
+        if active {
+            change(&path);
+            changed(&receive, &path);
+        }
+        drop(connection);
+        assert!(receive
+            .try_iter()
+            .all(|e| !matches!(e, StateWatchEvent::Stopped(_))));
+        assert!(matches!(
+            receive.try_recv(),
+            Err(mpsc::TryRecvError::Disconnected)
+        ));
+    }
     Ok(())
 }
 
@@ -189,22 +197,6 @@ pub fn deleted_root() -> Result<(), Failed> {
         receive.try_recv(),
         Err(mpsc::TryRecvError::Disconnected)
     ));
-    Ok(())
-}
-
-pub fn idle_disconnect() -> Result<(), Failed> {
-    let mut directory = Directory::new();
-    directory.register();
-    // A pending read must be drained on disconnect. Reconnecting must still work.
-    for _ in 0..2 {
-        let (send, receive) = mpsc::channel();
-        let connection = Session::new().connect(&directory.path, Filter::new(send))?;
-        drop(connection);
-        assert!(matches!(
-            receive.try_recv(),
-            Err(mpsc::TryRecvError::Disconnected)
-        ));
-    }
     Ok(())
 }
 

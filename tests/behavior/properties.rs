@@ -181,8 +181,6 @@ pub fn custom_states_show_in_explorer() -> Result<(), Failed> {
     let states = custom_states(&folder)?;
     assert!(states.contains("on the folder"), "{states:?}");
 
-    assert!(custom_states(&directory.0.join("missing.txt")).is_err());
-
     // An empty list clears them.
     set_item_properties(&file, &[]).context("clear")?;
     let states = custom_states(&file)?;

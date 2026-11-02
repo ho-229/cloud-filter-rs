@@ -1,22 +1,16 @@
-use core::str;
-use std::{fs, future::Future, path::Path, pin::Pin};
-
-use anyhow::Context;
 use cloud_filter::{
     error::{CResult, CloudErrorKind},
-    filter::{info, ticket, AsyncBridge, Filter, Request},
+    filter::{info, ticket, Filter, Request},
     metadata::Metadata,
     placeholder_create_info::PlaceholderCreateInfo,
-    root::{
-        Connection, HydrationType, PopulationType, SecurityId, Session, SyncRootId,
-        SyncRootIdBuilder, SyncRootInfo,
-    },
+    root::Session,
     utility::WriteAt,
 };
 use libtest_mimic::Failed;
-use nt_time::FileTime;
 
-const ROOT_PATH: &str = "C:\\async_filter_test";
+use super::common::{Client, Root};
+
+const CONTENT: &[u8] = b"async contents";
 
 struct MemFilter;
 
@@ -27,118 +21,45 @@ impl Filter for MemFilter {
         ticket: ticket::FetchData,
         info: info::FetchData,
     ) -> CResult<()> {
-        let path =
-            str::from_utf8(request.file_blob()).map_err(|_| CloudErrorKind::InvalidRequest)?;
-        println!("fetch_data: path: {path:?}");
-
-        let content = match path {
-            "test1.txt" | "dir1\\test2.txt" => path,
-            _ => Err(CloudErrorKind::InvalidRequest)?,
-        };
-
-        if info.required_file_range() != (0..content.len() as u64) {
-            Err(CloudErrorKind::InvalidRequest)?;
+        if info.required_file_range() != (0..CONTENT.len() as u64) {
+            return Err(CloudErrorKind::InvalidRequest);
         }
-
-        ticket.write_at(content.as_bytes(), 0).unwrap();
-
-        Ok(())
+        ticket
+            .write_at(request.file_blob(), 0)
+            .map_err(|_| CloudErrorKind::Unsuccessful)
     }
 
     async fn fetch_placeholders(
         &self,
-        request: Request,
+        _: Request,
         ticket: ticket::FetchPlaceholders,
-        _info: info::FetchPlaceholders,
+        _: info::FetchPlaceholders,
     ) -> CResult<()> {
-        let path = request.path();
-        let relative_path = path.strip_prefix(ROOT_PATH).unwrap();
-        println!("fetch_placeholders: path: {path:?}, relative path: {relative_path:?}");
-
-        let now = FileTime::now();
-        let mut placeholders = match relative_path.to_string_lossy().as_ref() {
-            "" => vec![
-                PlaceholderCreateInfo::new("dir1")
-                    .mark_in_sync()
-                    .metadata(Metadata::directory().created(now).written(now).size(0))
-                    .blob("dir1".into()),
-                PlaceholderCreateInfo::new("test1.txt")
-                    .has_no_children()
-                    .mark_in_sync()
-                    .metadata(
-                        Metadata::file()
-                            .created(now)
-                            .written(now)
-                            .size("test1.txt".len() as _),
-                    )
-                    .blob("test1.txt".into()),
-            ],
-            "dir1" => vec![PlaceholderCreateInfo::new("test2.txt")
-                .has_no_children()
-                .mark_in_sync()
-                .metadata(
-                    Metadata::file()
-                        .created(now)
-                        .written(now)
-                        .size("dir1\\test2.txt".len() as _),
-                )
-                .blob("dir1\\test2.txt".into())],
-            _ => Err(CloudErrorKind::InvalidRequest)?,
-        };
-
-        ticket.pass_with_placeholder(&mut placeholders).unwrap();
-        Ok(())
+        ticket
+            .pass_with_placeholder(&mut [PlaceholderCreateInfo::new("file.txt")
+                .metadata(Metadata::file().size(CONTENT.len() as u64))
+                .blob(CONTENT.to_vec())
+                .mark_in_sync()])
+            .map_err(|_| CloudErrorKind::Unsuccessful)
     }
-}
-
-fn init() -> anyhow::Result<(
-    SyncRootId,
-    Connection<AsyncBridge<MemFilter, impl Fn(Pin<Box<dyn Future<Output = ()>>>)>>,
-)> {
-    let sync_root_id = SyncRootIdBuilder::new("sync_filter_test_provider")
-        .user_security_id(SecurityId::current_user().context("current_user")?)
-        .build();
-
-    if !sync_root_id.is_registered().context("is_registered")? {
-        sync_root_id
-            .register(
-                SyncRootInfo::default()
-                    .with_display_name("Sync Filter Test")
-                    .with_hydration_type(HydrationType::Full)
-                    .with_population_type(PopulationType::Full)
-                    .with_icon("%SystemRoot%\\system32\\charmap.exe,0")
-                    .with_version("1.0.0")
-                    .with_recycle_bin_uri("http://cloudmirror.example.com/recyclebin")
-                    .context("recycle_bin_uri")?
-                    .with_path(ROOT_PATH)
-                    .context("path")?,
-            )
-            .context("register")?
-    }
-
-    let connection = Session::new()
-        .connect_async(ROOT_PATH, MemFilter, move |f| {
-            futures::executor::block_on(f)
-        })
-        .context("connect")?;
-
-    Ok((sync_root_id, connection))
 }
 
 pub fn test() -> Result<(), Failed> {
-    if !Path::new(ROOT_PATH).try_exists().context("exists")? {
-        fs::create_dir(ROOT_PATH).context("create root dir")?;
-    }
-
-    let (sync_root_id, connection) = init().context("init")?;
-
-    crate::test_list_folders(ROOT_PATH);
-    crate::test_read_file(ROOT_PATH);
-
-    drop(connection);
-    sync_root_id.unregister().context("unregister")?;
-
-    fs::remove_dir_all(ROOT_PATH).context("remove root dir")?;
-
+    let root = Root::new()?;
+    root.register(false)?;
+    let _connection = Session::new().connect_async(&root.path, MemFilter, |future| {
+        futures::executor::block_on(future)
+    })?;
+    // An external read exercises population and hydration through AsyncBridge.
+    Client::run(
+        &root,
+        r#"
+$ErrorActionPreference = 'Stop'
+$entries = @(Get-ChildItem -LiteralPath $env:CF_PROBE_ROOT)
+if ($entries.Count -ne 1 -or $entries[0].Name -ne 'file.txt') { throw 'Unexpected population' }
+$content = [IO.File]::ReadAllText((Join-Path $env:CF_PROBE_ROOT 'file.txt'))
+if ($content -cne 'async contents') { throw 'Unexpected hydrated contents' }
+"#,
+    )?;
     Ok(())
 }

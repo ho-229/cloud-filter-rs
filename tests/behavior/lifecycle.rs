@@ -2,10 +2,8 @@
 use std::{
     fs::{self, OpenOptions},
     os::windows::fs::OpenOptionsExt,
-    path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use anyhow::{ensure, Context};
@@ -14,93 +12,15 @@ use cloud_filter::{
     ext::FileExt,
     filter::{info, ticket, Request, SyncFilter},
     metadata::Metadata,
-    placeholder::{ConvertOptions, Placeholder, UpdateOptions},
-    placeholder_create_info::{BatchCreate, PlaceholderCreateInfo},
-    root::{
-        HydrationPolicy, HydrationType, PopulationType, SecurityId, Session, SyncRootId,
-        SyncRootIdBuilder, SyncRootInfo,
-    },
-    utility::WriteAt,
+    placeholder::{ConvertOptions, UpdateOptions},
+    placeholder_create_info::PlaceholderCreateInfo,
+    root::Session,
+    utility::{ReadAt, WriteAt},
 };
 use libtest_mimic::Failed;
 use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
 
-struct Root {
-    path: PathBuf,
-    id: SyncRootId,
-}
-
-impl Root {
-    fn new() -> anyhow::Result<Self> {
-        let name = format!(
-            "cf-lifecycle-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
-        );
-        // On the tested host WinRT rejected roots under AppData/Temp, while
-        // native CF registration succeeded. Keep lifecycle probes outside it.
-        let parent = std::env::current_dir()?.join("target");
-        fs::create_dir_all(&parent)?;
-        let path = parent.join(&name);
-        fs::create_dir(&path)?;
-        Ok(Self {
-            path,
-            id: SyncRootIdBuilder::new(name)
-                .user_security_id(SecurityId::current_user()?)
-                .build(),
-        })
-    }
-
-    fn register(&self, validation: bool) -> anyhow::Result<()> {
-        self.id.register(
-            SyncRootInfo::default()
-                .with_display_name("Cloud Filter Lifecycle Test")
-                .with_icon("%SystemRoot%\\system32\\charmap.exe,0")
-                .with_version("1.0.0")
-                .with_hydration_type(HydrationType::Partial)
-                .with_hydration_policy(if validation {
-                    HydrationPolicy::ValidationRequired | HydrationPolicy::AutoDehydrationAllowed
-                } else {
-                    HydrationPolicy::AutoDehydrationAllowed.into()
-                })
-                .with_population_type(PopulationType::Full)
-                .with_path(&self.path)?,
-        )?;
-        Ok(())
-    }
-
-    fn file(&self, name: &str) -> anyhow::Result<()> {
-        PlaceholderCreateInfo::new(name)
-            .metadata(Metadata::file().size(8192))
-            .blob(name.as_bytes().to_vec())
-            .mark_in_sync()
-            .create(&self.path)?;
-        Ok(())
-    }
-}
-
-impl Drop for Root {
-    fn drop(&mut self) {
-        let _ = self.id.unregister();
-        // Also clean up this test-owned native registration if WinRT lookup failed.
-        if let Ok(path) = widestring::U16CString::from_os_str(&self.path) {
-            let _ = unsafe {
-                windows::Win32::Storage::CloudFilters::CfUnregisterSyncRoot(windows::core::PCWSTR(
-                    path.as_ptr(),
-                ))
-            };
-        }
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
-
-fn open(path: &Path) -> anyhow::Result<Placeholder> {
-    Ok(OpenOptions::new()
-        .access_mode(0)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
-        .open(path)?
-        .into())
-}
+use super::common::{open, Client, Root};
 
 #[derive(Debug, Clone)]
 struct Event {
@@ -157,189 +77,6 @@ fn api_error(_: windows::core::Error) -> CloudErrorKind {
     CloudErrorKind::Unsuccessful
 }
 
-// Exercise both native creation paths, including population completion and
-// partial failure. Successful HRESULTs alone do not prove the metadata is valid.
-pub fn placeholder_batches_preserve_identities() -> Result<(), Failed> {
-    fn placeholders(identities: &[(bool, Vec<u8>)]) -> Vec<PlaceholderCreateInfo> {
-        identities
-            .iter()
-            .enumerate()
-            .map(|(index, (directory, blob))| {
-                let entry = PlaceholderCreateInfo::new(format!("item-{index}"));
-                if *directory {
-                    entry.metadata(Metadata::directory()).has_no_children()
-                } else {
-                    entry.metadata(Metadata::file().size(4096))
-                }
-                .mark_in_sync()
-                .blob(blob.clone())
-            })
-            .collect()
-    }
-
-    // Equal or increasing lengths can still switch from compressed to
-    // uncompressed metadata. A deterministic identity makes this reproducible.
-    let random_identity = |length| {
-        let mut seed = 0x1234_5678u32;
-        (0..length)
-            .map(|_| {
-                seed ^= seed << 13;
-                seed ^= seed >> 17;
-                seed ^= seed << 5;
-                seed as u8
-            })
-            .collect::<Vec<_>>()
-    };
-    // The original shrinking-identity case; each fixture is (is_directory, identity).
-    let mut identities: Vec<_> = [112, 139, 117, 105, 103]
-        .into_iter()
-        .enumerate()
-        .map(|(i, len)| (false, vec![i as u8 + 1; len]))
-        .collect();
-    identities.extend([
-        // Equal lengths with different compressibility defeat length sorting.
-        (false, vec![1; 512]),
-        (false, random_identity(512)),
-        // Increasing lengths can cross the same compression boundary.
-        (false, vec![1; 139]),
-        (false, random_identity(331)),
-        // File and directory metadata can also cross it with increasing lengths.
-        (false, vec![1; 139]),
-        (true, vec![2; 140]),
-    ]);
-
-    struct Populate {
-        identities: Vec<(bool, Vec<u8>)>,
-        results: Arc<Mutex<Vec<windows::core::Result<()>>>>,
-    }
-    impl SyncFilter for Populate {
-        fn fetch_data(&self, _: Request, _: ticket::FetchData, _: info::FetchData) -> CResult<()> {
-            Err(CloudErrorKind::NotSupported)
-        }
-
-        fn fetch_placeholders(
-            &self,
-            _: Request,
-            ticket: ticket::FetchPlaceholders,
-            _: info::FetchPlaceholders,
-        ) -> CResult<()> {
-            let result = ticket.pass_with_placeholder(&mut placeholders(&self.identities));
-            // Enumeration can return entries despite a population error, so
-            // capture the provider's result independently of the client exit code.
-            self.results.lock().unwrap().push(result.clone());
-            result.map_err(api_error)
-        }
-    }
-
-    for (on_demand, existing, empty) in [
-        (false, None, false),
-        (true, None, false),
-        (false, Some(3), false),
-        (true, Some(3), false),
-        // A failure in the last entry must not complete population either.
-        (true, Some(identities.len() - 1), false),
-        // Direct creation is a no-op; a callback must still finish an empty directory.
-        (false, None, true),
-        (true, None, true),
-    ] {
-        let identities = if empty { &[][..] } else { &identities[..] };
-        println!("batch: on_demand={on_demand}, existing={existing:?}, empty={empty}");
-        let root = Root::new()?;
-        if let Some(index) = existing {
-            fs::write(root.path.join(format!("item-{index}")), b"existing")?;
-        }
-        root.register(false)?;
-        let results = Arc::new(Mutex::new(Vec::new()));
-        let _connection = if on_demand {
-            Some(Session::new().connect(
-                &root.path,
-                Populate {
-                    identities: identities.to_vec(),
-                    results: results.clone(),
-                },
-            )?)
-        } else {
-            let mut batch = placeholders(identities);
-            let result = batch.create(&root.path);
-            assert_eq!(result.is_err(), existing.is_some(), "{result:?}");
-            // An error must not skip later entries or overwrite their results.
-            for (index, placeholder) in batch.iter().enumerate() {
-                if Some(index) == existing {
-                    assert!(placeholder.result().is_err(), "missing collision result");
-                    assert_eq!(
-                        result.as_ref().unwrap_err().code(),
-                        placeholder.result().unwrap_err().code()
-                    );
-                } else {
-                    assert!(placeholder.result()? > 0, "missing creation USN");
-                }
-            }
-            None
-        };
-        if on_demand {
-            // Enumeration must originate outside the provider process. Enumerate
-            // successful roots twice to check that completion prevents another fetch.
-            for _ in 0..if existing.is_some() { 1 } else { 2 } {
-                let output = Command::new("powershell.exe")
-                    .args(["-NoProfile", "-NonInteractive", "-Command",
-                        "$ErrorActionPreference = 'Stop'; Get-ChildItem -LiteralPath $env:CF_BATCH_ROOT | Select-Object -ExpandProperty Name"])
-                    .env("CF_BATCH_ROOT", &root.path)
-                    .output()?;
-                if existing.is_none() {
-                    assert!(
-                        output.status.success(),
-                        "enumerate: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                    let mut actual: Vec<_> = String::from_utf8_lossy(&output.stdout)
-                        .lines()
-                        .map(str::to_owned)
-                        .collect();
-                    let mut expected: Vec<_> =
-                        (0..identities.len()).map(|i| format!("item-{i}")).collect();
-                    actual.sort();
-                    expected.sort();
-                    assert_eq!(
-                        actual, expected,
-                        "enumeration completed before all entries were created"
-                    );
-                }
-            }
-            let results = results.lock().unwrap();
-            assert!(!results.is_empty(), "missing population callback");
-            assert!(
-                results
-                    .iter()
-                    .all(|result| result.is_err() == existing.is_some()),
-                "{results:?}"
-            );
-            // Windows may retry a failed population; only success forbids another fetch.
-            if existing.is_none() {
-                assert_eq!(results.len(), 1, "unexpected repeated population");
-            }
-            assert_eq!(
-                open(&root.path)?.state()?.context("root state")?.partial(),
-                existing.is_some()
-            );
-        }
-        // Corruption surfaces when reopening metadata, even if creation returned
-        // S_OK. Check the full identity without hydrating file contents.
-        for (index, (directory, blob)) in identities.iter().enumerate() {
-            let path = root.path.join(format!("item-{index}"));
-            if Some(index) == existing {
-                assert_eq!(fs::read(path)?, b"existing");
-                continue;
-            }
-            let info = open(&path)?.info()?.context("placeholder metadata")?;
-            assert_eq!(info.blob(), blob);
-            assert!(info.is_in_sync());
-            assert_eq!(info.on_disk_data_size(), 0);
-            assert_eq!(fs::metadata(path)?.is_dir(), *directory);
-        }
-    }
-    Ok(())
-}
-
 impl SyncFilter for Probe {
     fn fetch_data(
         &self,
@@ -363,8 +100,16 @@ impl SyncFilter for Probe {
         ticket: ticket::ValidateData,
         info: info::ValidateData,
     ) -> CResult<()> {
+        let range = info.file_range();
+        // Read back the bytes persisted by TRANSFER_DATA before acknowledging them.
+        let mut data = vec![0; (range.end - range.start) as usize];
+        let returned = ticket.read_at(&mut data, range.start).map_err(api_error)?;
+        if returned != data.len() as u64 || data.iter().any(|&byte| byte != b'x') {
+            return Err(CloudErrorKind::Unsuccessful);
+        }
+        ticket.pass(range).map_err(api_error)?;
         self.record("validate_data", &request, &info);
-        ticket.pass(info.file_range()).map_err(api_error)
+        Ok(())
     }
     fn fetch_placeholders(
         &self,
@@ -430,44 +175,11 @@ impl SyncFilter for Probe {
     }
 }
 
-// Bound subprocess lifetime, including on assertion failure; scripts operate only on this root.
-struct Client(Child);
-impl Client {
-    fn start(root: &Root, script: &str) -> anyhow::Result<Self> {
-        Ok(Self(
-            Command::new("powershell.exe")
-                .args(["-NoProfile", "-NonInteractive", "-Command", script])
-                .env("CF_PROBE_ROOT", &root.path)
-                .stdout(Stdio::null())
-                .stderr(Stdio::inherit())
-                .spawn()?,
-        ))
-    }
-    fn run(root: &Root, script: &str) -> anyhow::Result<()> {
-        let mut client = Self::start(root, script)?;
-        let deadline = Instant::now() + Duration::from_secs(15);
-        loop {
-            if let Some(status) = client.0.try_wait()? {
-                ensure!(status.success(), "client: {status}");
-                return Ok(());
-            }
-            ensure!(Instant::now() < deadline, "client timed out: {script}");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-}
-impl Drop for Client {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
 pub fn sync_root_membership() -> Result<(), Failed> {
     let root = Root::new()?;
     fs::create_dir(root.path.join("ordinary"))?;
     fs::write(root.path.join("ordinary/local.txt"), b"local contents")?;
-    let open_file = |path: &Path| {
+    let open_file = |path: &std::path::Path| {
         OpenOptions::new()
             .access_mode(windows::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES.0)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
@@ -704,9 +416,13 @@ public static class DispositionProbe {
 fn callback_triggers_inner() -> anyhow::Result<()> {
     let root = Root::new()?;
     root.register(true)?;
-    for name in ["provider.bin", "client.bin"] {
-        root.file(name)?;
-    }
+    root.file("provider.bin")?;
+    // Retain the ReadAt regression for a final range that is not page aligned.
+    PlaceholderCreateInfo::new("client.bin")
+        .metadata(Metadata::file().size(8192 + 17))
+        .blob(b"client.bin".to_vec())
+        .mark_in_sync()
+        .create(&root.path)?;
     PlaceholderCreateInfo::new("enumerated-dir")
         .metadata(Metadata::directory())
         .blob(b"enumerated-dir".to_vec())
