@@ -101,7 +101,7 @@ impl Debug for CancelFetchData {
 pub struct ValidateData(pub(crate) CF_CALLBACK_PARAMETERS_0_11);
 
 impl ValidateData {
-    /// Whether or not the callback failed as a result of the 60 second timeout.
+    /// Whether validation was requested by an explicit hydration operation.
     pub fn explicit_hydration(&self) -> bool {
         (self.0.Flags & CloudFilters::CF_CALLBACK_VALIDATE_DATA_FLAG_EXPLICIT_HYDRATION).0 != 0
     }
@@ -292,8 +292,9 @@ impl Delete {
         (self.0.Flags & CloudFilters::CF_CALLBACK_DELETE_FLAG_IS_DIRECTORY).0 != 0
     }
 
-    // TODO: missing docs
-    /// The placeholder is being undeleted.
+    /// The pending deletion is being undone. This can occur when an application
+    /// clears a delete disposition before closing the file; it is not limited to
+    /// restoring an item from the recycle bin.
     pub fn is_undelete(&self) -> bool {
         (self.0.Flags & CloudFilters::CF_CALLBACK_DELETE_FLAG_IS_UNDELETE).0 != 0
     }

@@ -388,6 +388,9 @@ impl SyncFilter for Probe {
         self.record("opened", &request, info);
     }
     fn closed(&self, request: Request, info: info::Closed) {
+        if info.deleted() {
+            self.record("closed_deleted", &request, &info);
+        }
         self.record("closed", &request, info);
     }
     fn dehydrate(
@@ -403,6 +406,9 @@ impl SyncFilter for Probe {
         self.record("dehydrated", &request, info);
     }
     fn delete(&self, request: Request, ticket: ticket::Delete, info: info::Delete) -> CResult<()> {
+        if info.is_undelete() {
+            self.record("undelete", &request, &info);
+        }
         self.record("delete", &request, info);
         ticket.pass().map_err(api_error)
     }
@@ -410,8 +416,14 @@ impl SyncFilter for Probe {
         self.record("deleted", &request, info);
     }
     fn rename(&self, request: Request, ticket: ticket::Rename, info: info::Rename) -> CResult<()> {
-        self.record("rename", &request, info);
-        ticket.pass().map_err(api_error)
+        self.record("rename", &request, &info);
+        if request.path().file_name().unwrap() == "rename-race.bin" {
+            // Introduce a destination collision after the request reaches the provider.
+            fs::write(info.target_path(), b"occupied").map_err(|_| CloudErrorKind::Unsuccessful)?;
+        }
+        ticket.pass().map_err(api_error)?;
+        self.record("rename_ack", &request, ());
+        Ok(())
     }
     fn renamed(&self, request: Request, info: info::Renamed) {
         self.record("renamed", &request, info);
@@ -578,6 +590,69 @@ fn registration_lifecycle_inner() -> anyhow::Result<()> {
 
 pub fn callback_triggers() -> Result<(), Failed> {
     callback_triggers_inner().map_err(Into::into)
+}
+
+pub fn acknowledgment_is_not_completion() -> Result<(), Failed> {
+    acknowledgment_is_not_completion_inner().map_err(Into::into)
+}
+
+fn acknowledgment_is_not_completion_inner() -> anyhow::Result<()> {
+    let root = Root::new()?;
+    root.register(false)?;
+    root.file("undo.bin")?;
+    root.file("rename-race.bin")?;
+    let probe = Probe::default();
+    let _connection = Session::new().connect(&root.path, probe.clone())?;
+    // Provider-originated operations bypass these callbacks. A separate process
+    // sets and clears the delete disposition without involving the recycle bin.
+    Client::run(
+        &root,
+        r#"
+$ErrorActionPreference='Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class DispositionProbe {
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern SafeFileHandle CreateFileW(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool SetFileInformationByHandle(SafeFileHandle file, int kind, ref byte value, uint size);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern bool MoveFileW(string source, string target);
+    public static void Undo(string path) {
+        using (var file = CreateFileW(path, 0x10000, 7, IntPtr.Zero, 3, 0, IntPtr.Zero)) {
+            if (file.IsInvalid) throw new Win32Exception();
+            byte value = 1;
+            if (!SetFileInformationByHandle(file, 4, ref value, 1)) throw new Win32Exception();
+            value = 0;
+            if (!SetFileInformationByHandle(file, 4, ref value, 1)) throw new Win32Exception();
+        }
+    }
+    public static void RenameCollision(string source, string target) {
+        if (MoveFileW(source, target)) throw new Exception("rename unexpectedly succeeded");
+        int error = Marshal.GetLastWin32Error();
+        if (error != 183 && error != 80) throw new Win32Exception(error);
+    }
+}
+'@
+[DispositionProbe]::Undo((Join-Path $env:CF_PROBE_ROOT 'undo.bin'))
+[DispositionProbe]::RenameCollision((Join-Path $env:CF_PROBE_ROOT 'rename-race.bin'), (Join-Path $env:CF_PROBE_ROOT 'occupied.bin'))
+"#,
+    )?;
+    probe.wait("deleted", "undo.bin")?;
+    probe.wait("undelete", "undo.bin")?;
+    probe.wait("closed", "undo.bin")?;
+    ensure!(probe.count("closed_deleted", "undo.bin") == 0);
+    // DELETE_COMPLETION can report a successful disposition change even though
+    // a subsequent undelete preserves the file and its contents.
+    ensure!(fs::read(root.path.join("undo.bin"))? == vec![b'x'; 8192]);
+    probe.wait("rename_ack", "rename-race.bin")?;
+    ensure!(probe.count("renamed", "occupied.bin") == 0);
+    ensure!(fs::read(root.path.join("rename-race.bin"))? == vec![b'x'; 8192]);
+    ensure!(fs::read(root.path.join("occupied.bin"))? == b"occupied");
+    Ok(())
 }
 
 fn callback_triggers_inner() -> anyhow::Result<()> {

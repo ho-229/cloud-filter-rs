@@ -84,8 +84,8 @@ impl utility::ReadAt for FetchData {
 impl utility::WriteAt for FetchData {
     /// Write data at an offset to a placeholder file.
     ///
-    /// The buffer passed must be 4KiB in length or end on the logical file size. Unfortunately,
-    /// this is a restriction of the operating system.
+    /// The offset must be 4 KiB aligned. The length must be a multiple of 4 KiB,
+    /// unless the range ends on or beyond the logical file size.
     ///
     /// This method is equivalent to calling `CfExecute` with `CF_OPERATION_TYPE_TRANSFER_DATA`.
     fn write_at(&self, buf: &[u8], offset: u64) -> core::Result<()> {
@@ -133,8 +133,8 @@ impl utility::ReadAt for ValidateData {
     ///
     /// This method is equivalent to calling `CfExecute` with `CF_OPERATION_TYPE_RETRIEVE_DATA`.
     ///
-    /// The bytes returned will ALWAYS be the length of the buffer passed in. The operating
-    /// system provides these guarantees.
+    /// Requires `HydrationPolicy::ValidationRequired` and previously transferred data.
+    /// Returns the number of bytes retrieved by the platform.
     fn read_at(&self, buf: &mut [u8], offset: u64) -> core::Result<u64> {
         command::Read {
             buffer: buf,
@@ -195,12 +195,12 @@ impl Dehydrate {
         }
     }
 
-    /// Confirms dehydration of the file.
+    /// Allows the pending dehydration to proceed; success is not a completion notification.
     pub fn pass(&self) -> core::Result<()> {
         command::Dehydrate { blob: &[] }.execute(self.connection_key, self.transfer_key)
     }
 
-    /// Confirms dehydration of the file and updates its file blob.
+    /// Allows the pending dehydration and supplies a new file blob to the platform.
     pub fn pass_with_blob(&self, blob: &[u8]) -> core::Result<()> {
         command::Dehydrate { blob }.execute(self.connection_key, self.transfer_key)
     }
@@ -222,7 +222,8 @@ impl Delete {
         }
     }
 
-    /// Confirms deletion of the file.
+    /// Allows the pending deletion or undelete to proceed.
+    /// This does not prove that the file has been permanently removed.
     pub fn pass(&self) -> core::Result<()> {
         command::Delete.execute(self.connection_key, self.transfer_key)
     }
@@ -244,7 +245,7 @@ impl Rename {
         }
     }
 
-    /// Confirms the rename/move of a file.
+    /// Allows the pending rename/move to proceed. The local operation can still fail.
     pub fn pass(&self) -> core::Result<()> {
         command::Rename.execute(self.connection_key, self.transfer_key)
     }

@@ -43,8 +43,8 @@ pub trait Filter: Send + Sync {
         async {}
     }
 
-    /// Followed by a successful call to [Filter::fetch_data][super::Filter::fetch_data], this callback should verify the integrity of
-    /// the data persisted in the placeholder.
+    /// Verify transferred data before the platform completes reads of that range.
+    /// Validation can run while other ranges are still being fetched.
     ///
     /// **You** are responsible for validating the data in the placeholder. To approve
     /// the request, use the ticket provided.
@@ -91,7 +91,8 @@ pub trait Filter: Send + Sync {
     }
 
     /// A placeholder file handle that has been previously opened with read, write,
-    /// and/or delete access has been closed.
+    /// and/or delete access has been closed. Inspect `info.deleted()` for deletion
+    /// on close. Directories do not receive this notification.
     fn closed(&self, _request: Request, _info: info::Closed) -> impl Future<Output = ()> {
         async {}
     }
@@ -101,6 +102,7 @@ pub trait Filter: Send + Sync {
     /// The requesting application is blocked until the ticket is acknowledged or failed.
     /// Pin/unpin attribute changes alone do not guarantee this callback. Provider-issued
     /// dehydration can bypass it, so enforce provider-side checks at that call site too.
+    /// Acknowledgment permits dehydration; it does not prove that it has completed.
     fn dehydrate(
         &self,
         _request: Request,
@@ -119,6 +121,8 @@ pub trait Filter: Send + Sync {
     ///
     /// The operating system will handle deleting placeholder files automatically. However, it is
     /// up to **you** to approve this. Use the ticket to approve the request.
+    /// An application can later undo its delete disposition. Do not treat approval
+    /// as permission to irreversibly discard the only remote copy.
     fn delete(
         &self,
         _request: Request,
@@ -128,7 +132,9 @@ pub trait Filter: Send + Sync {
         async { Err(CloudErrorKind::NotSupported) }
     }
 
-    /// A placeholder file or directory has been deleted. No acknowledgment is needed.
+    /// A local delete operation completed. No acknowledgment is needed.
+    /// This can precede an undelete while a handle remains open. Recheck the final
+    /// local state before permanently deleting remote data.
     fn deleted(&self, _request: Request, _info: info::Deleted) -> impl Future<Output = ()> {
         async {}
     }

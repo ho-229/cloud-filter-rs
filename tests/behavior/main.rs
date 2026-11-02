@@ -15,6 +15,10 @@ fn main() -> ExitCode {
         Trial::test("registration_lifecycle", lifecycle::registration_lifecycle),
         Trial::test("callback_triggers", lifecycle::callback_triggers),
         Trial::test(
+            "acknowledgment_is_not_completion",
+            lifecycle::acknowledgment_is_not_completion,
+        ),
+        Trial::test(
             "placeholder_batches_preserve_identities",
             lifecycle::placeholder_batches_preserve_identities,
         ),
