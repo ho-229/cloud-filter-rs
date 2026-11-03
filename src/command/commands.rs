@@ -1,4 +1,7 @@
-use std::{ops::Range, ptr};
+use std::{
+    ops::{Bound, Range},
+    ptr,
+};
 
 use windows::{
     core,
@@ -259,7 +262,7 @@ impl Fallible for CreatePlaceholders<'_> {
 #[derive(Debug)]
 pub struct Validate {
     /// The range of data to validate as "good."
-    pub range: Range<u64>,
+    pub range: (Bound<u64>, Bound<u64>),
 }
 
 impl Command for Validate {
@@ -271,7 +274,7 @@ impl Command for Validate {
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
-        let (offset, length) = utility::checked_range(self.range.clone())?;
+        let (offset, length) = utility::checked_range(self.range)?;
         Ok(CF_OPERATION_PARAMETERS_0 {
             AckData: CF_OPERATION_PARAMETERS_0_0 {
                 Flags: CloudFilters::CF_OPERATION_ACK_DATA_FLAG_NONE,

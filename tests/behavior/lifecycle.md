@@ -39,6 +39,11 @@ The hydration restart probes in [tickets.rs](tickets.rs) add these observations 
 * PARTIAL restart returned `ERROR_CLOUD_FILE_INVALID_REQUEST`, whereas the [native documentation](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ns-cfapi-cf_operation_parameters) specifies `STATUS_CLOUD_FILE_NOT_SUPPORTED`. A rejected restart did not itself complete the pending read; the provider must still fail or service it.
 * Restarting with a size change from 8192 to 4097 stalled inside `CfExecute`. Moving the operation off the callback thread, preserving the callback RequestKey, allowing read/write/delete sharing, preserving attributes, and blocking provider self-hydration did not resolve it. Same-size metadata updates succeeded. The wrapper therefore rejects size changes with `ERROR_NOT_SUPPORTED` before calling Windows; this is a library restriction based on this host, not a documented CFAPI restriction. The BT verifies rejection leaves the ticket usable. This does not establish the behavior of other Windows builds.
 
+The validation callback probe acknowledges transferred data in two parts using inclusive bounds
+and an unbounded end (`CF_EOF`), including an unaligned final file size. It first rejects an
+overflowing bound, then uses the same ticket successfully. Bound arithmetic remains covered by
+the unit tests in `utility.rs`.
+
 The bridge registers every callback, so a default `NotSupported` handler rejects the operation instead of omitting the callback. An approval ticket permits the local operation; it does not make a remote mutation atomic with that operation. `state_changed` is a separate directory watcher for pin/attribute changes. Lost notifications trigger a batched root scan; disconnected periods still need provider-side reconciliation.
 
 ```powershell

@@ -107,7 +107,21 @@ impl SyncFilter for Probe {
         if returned != data.len() as u64 || data.iter().any(|&byte| byte != b'x') {
             return Err(CloudErrorKind::Unsuccessful);
         }
-        ticket.pass(range).map_err(api_error)?;
+        // A rejected Rust bound must leave this ticket usable. Acknowledge the
+        // final callback in two parts to exercise inclusive bounds and CF_EOF.
+        assert_eq!(
+            ticket.pass(..=u64::MAX).unwrap_err().code(),
+            windows::Win32::Foundation::E_INVALIDARG
+        );
+        let split = range.start + 4096;
+        if split < range.end && range.end == request.file_size() {
+            ticket.pass(range.start..=split - 1).map_err(api_error)?;
+            ticket.pass(split..).map_err(api_error)?;
+        } else {
+            ticket
+                .pass(range.start..=range.end - 1)
+                .map_err(api_error)?;
+        }
         self.record("validate_data", &request, &info);
         Ok(())
     }

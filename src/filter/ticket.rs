@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::ops::{Range, RangeBounds};
 
 use windows::{
     core,
@@ -175,12 +175,16 @@ impl ValidateData {
 
     /// Validates the data range in the placeholder file is valid.
     ///
+    /// The offset must be 4 KiB aligned. The length must be a multiple of 4 KiB,
+    /// unless the range ends on or beyond the logical file size. An unbounded end
+    /// acknowledges through EOF.
+    ///
     /// This method is equivalent to calling `CfExecute` with `CF_OPERATION_TYPE_ACK_DATA`.
-    // TODO: make this generic over a RangeBounds
-    // if the range specified is past the current file length, will it consider that range to be validated?
-    // https://docs.microsoft.com/en-us/answers/questions/750302/if-the-ackdata-field-of-cf-operation-parameters-is.html
-    pub fn pass(&self, range: Range<u64>) -> core::Result<()> {
-        command::Validate { range }.execute(self.connection_key, self.transfer_key)
+    pub fn pass(&self, range: impl RangeBounds<u64>) -> core::Result<()> {
+        command::Validate {
+            range: (range.start_bound().cloned(), range.end_bound().cloned()),
+        }
+        .execute(self.connection_key, self.transfer_key)
     }
 
     /// Discards invalid data and restarts pending hydration instead of acknowledging it.
