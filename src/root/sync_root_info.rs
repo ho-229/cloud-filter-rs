@@ -408,7 +408,9 @@ flags! {
         DirectoryCreationTime = StorageProviderInSyncPolicy::DirectoryCreationTime.0,
         DirectoryReadonly = StorageProviderInSyncPolicy::DirectoryReadOnlyAttribute.0,
         DirectoryHidden = StorageProviderInSyncPolicy::DirectoryHiddenAttribute.0,
+        DirectorySystem = StorageProviderInSyncPolicy::DirectorySystemAttribute.0,
         DirectoryLastWriteTime = StorageProviderInSyncPolicy::DirectoryLastWriteTime.0,
+        PreserveInSyncForSyncEngine = StorageProviderInSyncPolicy::PreserveInsyncForSyncEngine.0,
     }
 }
 
@@ -454,7 +456,7 @@ flags! {
 }
 
 /// The population policy of the sync root registration.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PopulationType {
     /// If the placeholder files or directories are not fully populated,
     /// the platform will request that the sync provider populate them before completing a user request.

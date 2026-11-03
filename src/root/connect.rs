@@ -3,9 +3,18 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use windows::Win32::Storage::CloudFilters::{CfDisconnectSyncRoot, CF_CONNECTION_KEY};
+use windows::{
+    core,
+    Win32::Storage::CloudFilters::{
+        CfDisconnectSyncRoot, CfQuerySyncProviderStatus, CfUpdateSyncProviderStatus,
+        CF_CONNECTION_KEY,
+    },
+};
 
-use crate::filter::{Callbacks, RawConnectionKey};
+use crate::{
+    ext::ProviderStatus,
+    filter::{Callbacks, RawConnectionKey},
+};
 
 /// A handle to the current session for a given sync root.
 ///
@@ -26,8 +35,6 @@ pub struct Connection<F> {
     context: Option<Box<Weak<F>>>,
 }
 
-// this struct could house many more windows api functions, although they all seem to do nothing
-// according to the threads on microsoft q&a
 impl<T> Connection<T> {
     #[allow(clippy::redundant_allocation)]
     pub(crate) fn new(
@@ -59,6 +66,19 @@ impl<T> Connection<T> {
     /// A reference to the inner [SyncFilter][crate::filter::SyncFilter] struct.
     pub fn filter(&self) -> &T {
         &self.filter
+    }
+
+    /// Queries the status of this provider connection.
+    pub fn status(&self) -> core::Result<ProviderStatus> {
+        unsafe { CfQuerySyncProviderStatus(CF_CONNECTION_KEY(self.connection_key)) }.map(Into::into)
+    }
+
+    /// Updates the provider status queried by [`Self::status`].
+    ///
+    /// The status lasts for this connection. It does not mark individual placeholders
+    /// in sync or initiate any transfers.
+    pub fn set_status(&self, status: ProviderStatus) -> core::Result<()> {
+        unsafe { CfUpdateSyncProviderStatus(CF_CONNECTION_KEY(self.connection_key), status.into()) }
     }
 }
 

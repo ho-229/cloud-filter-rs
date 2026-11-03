@@ -39,6 +39,14 @@ The hydration restart probes in [tickets.rs](tickets.rs) add these observations 
 * PARTIAL restart returned `ERROR_CLOUD_FILE_INVALID_REQUEST`, whereas the [native documentation](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ns-cfapi-cf_operation_parameters) specifies `STATUS_CLOUD_FILE_NOT_SUPPORTED`. A rejected restart did not itself complete the pending read; the provider must still fail or service it.
 * Restarting with a size change from 8192 to 4097 stalled inside `CfExecute`. Moving the operation off the callback thread, preserving the callback RequestKey, allowing read/write/delete sharing, preserving attributes, and blocking provider self-hydration did not resolve it. Same-size metadata updates succeeded. The wrapper therefore rejects size changes with `ERROR_NOT_SUPPORTED` before calling Windows; this is a library restriction based on this host, not a documented CFAPI restriction. The BT verifies rejection leaves the ticket usable. This does not establish the behavior of other Windows builds.
 
+The native root-info probe registers directly through CFAPI, without a WinRT catalogue entry,
+and checks empty/nonempty identities, policy conversion, snapshot ownership, and provider
+status updates. On this host, the first handle-based status query after connecting and updating
+could still report `Disconnected`; `CfQuerySyncProviderStatus` returned the new value immediately,
+and subsequent handle queries caught up. The test waits for that snapshot rather than requiring
+instant propagation. Membership queries also verify that reading root info through an offline
+child does not hydrate it and returns no registration after unregistering.
+
 The validation callback probe acknowledges transferred data in two parts using inclusive bounds
 and an unbounded end (`CF_EOF`), including an unaligned final file size. It first rejects an
 overflowing bound, then uses the same ticket successfully. Bound arithmetic remains covered by

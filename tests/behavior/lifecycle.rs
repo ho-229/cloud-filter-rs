@@ -9,12 +9,12 @@ use std::{
 use anyhow::{ensure, Context};
 use cloud_filter::{
     error::{CResult, CloudErrorKind},
-    ext::FileExt,
+    ext::{FileExt, ProviderStatus},
     filter::{info, ticket, Request, SyncFilter},
     metadata::Metadata,
     placeholder::{ConvertOptions, UpdateOptions},
     placeholder_create_info::PlaceholderCreateInfo,
-    root::Session,
+    root::{HydrationPolicy, HydrationType, PopulationType, Session, SupportedAttribute},
     utility::{ReadAt, WriteAt},
 };
 use libtest_mimic::Failed;
@@ -204,19 +204,33 @@ pub fn sync_root_membership() -> Result<(), Failed> {
     let file = open_file(&root.path.join("ordinary/local.txt"))?;
     assert!(!directory.in_sync_root()?);
     assert!(!file.in_sync_root()?);
+    assert!(directory
+        .sync_root_info()
+        .context("query unregistered directory")?
+        .is_none());
+    assert!(file
+        .sync_root_info()
+        .context("query ordinary file")?
+        .is_none());
 
     root.register(false)?;
     root.file("offline.bin")?;
     let offline = open_file(&root.path.join("offline.bin"))?;
     let connection = Session::new().connect(&root.path, Probe::default())?;
+    let root_file_id = directory.sync_root_info()?.unwrap().file_id();
     for handle in [&directory, &nested, &file, &offline] {
         assert!(handle.in_sync_root()?);
+        assert_eq!(handle.sync_root_info()?.unwrap().file_id(), root_file_id);
     }
     assert!(!open_file(root.path.parent().unwrap())?.in_sync_root()?);
     drop(connection);
     // Membership follows registration, not connection or placeholder state.
     for handle in [&directory, &nested, &file, &offline] {
         assert!(handle.in_sync_root()?);
+        assert_eq!(
+            handle.sync_root_info()?.unwrap().status(),
+            ProviderStatus::Disconnected
+        );
     }
     assert_eq!(
         open(&root.path.join("offline.bin"))?
@@ -224,14 +238,156 @@ pub fn sync_root_membership() -> Result<(), Failed> {
             .unwrap()
             .on_disk_data_size(),
         0,
-        "membership queries must not hydrate data"
+        "sync root queries must not hydrate data"
     );
     drop(offline);
     root.id.unregister()?;
     assert!(!directory.in_sync_root()?);
     assert!(!file.in_sync_root()?);
+    assert!(directory.sync_root_info()?.is_none());
+    assert!(file.sync_root_info()?.is_none());
     // Unsupported handles must report an error rather than look like ordinary files.
     assert!(fs::File::open("NUL")?.in_sync_root().is_err());
+    assert!(fs::File::open("NUL")?.sync_root_info().is_err());
+    Ok(())
+}
+
+pub fn sync_root_info() -> Result<(), Failed> {
+    use std::mem;
+    use windows::{
+        core::{w, PCWSTR},
+        Win32::Storage::CloudFilters::*,
+    };
+
+    // Register directly so the query must work without WinRT's registration
+    // catalogue. Empty and nonempty identities exercise both buffer paths.
+    for (hydration, population, blob) in [
+        (
+            CF_HYDRATION_POLICY_PARTIAL,
+            CF_POPULATION_POLICY_FULL,
+            vec![],
+        ),
+        (
+            CF_HYDRATION_POLICY_FULL,
+            CF_POPULATION_POLICY_ALWAYS_FULL,
+            (0..128).map(|i| i as u8).collect(),
+        ),
+    ] {
+        let root = Root::new()?;
+        let path = widestring::U16CString::from_os_str(&root.path)?;
+        unsafe {
+            CfRegisterSyncRoot(
+                PCWSTR(path.as_ptr()),
+                &CF_SYNC_REGISTRATION {
+                    StructSize: mem::size_of::<CF_SYNC_REGISTRATION>() as u32,
+                    ProviderName: w!("Native Info Test"),
+                    ProviderVersion: w!("1.2.3"),
+                    SyncRootIdentity: if blob.is_empty() {
+                        std::ptr::null()
+                    } else {
+                        blob.as_ptr().cast()
+                    },
+                    SyncRootIdentityLength: blob.len() as u32,
+                    ..Default::default()
+                },
+                &CF_SYNC_POLICIES {
+                    StructSize: mem::size_of::<CF_SYNC_POLICIES>() as u32,
+                    Hydration: CF_HYDRATION_POLICY {
+                        Primary: hydration,
+                        Modifier: CF_HYDRATION_POLICY_MODIFIER_VALIDATION_REQUIRED,
+                    },
+                    Population: CF_POPULATION_POLICY {
+                        Primary: population,
+                        Modifier: CF_POPULATION_POLICY_MODIFIER_NONE,
+                    },
+                    InSync: CF_INSYNC_POLICY_TRACK_FILE_LAST_WRITE_TIME
+                        | CF_INSYNC_POLICY_TRACK_DIRECTORY_SYSTEM_ATTRIBUTE
+                        | CF_INSYNC_POLICY_PRESERVE_INSYNC_FOR_SYNC_ENGINE,
+                    HardLink: CF_HARDLINK_POLICY_ALLOWED,
+                    ..Default::default()
+                },
+                CF_REGISTER_FLAG_NONE,
+            )
+            .map_err(|e| {
+                anyhow::anyhow!("register native info root ({} bytes): {e}", blob.len())
+            })?;
+        }
+        let directory = OpenOptions::new()
+            .access_mode(windows::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES.0)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+            .open(&root.path)?;
+        let snapshot = directory
+            .sync_root_info()
+            .context("query native info root")?
+            .unwrap();
+        assert_eq!(
+            snapshot.hydration_type(),
+            if hydration == CF_HYDRATION_POLICY_PARTIAL {
+                HydrationType::Partial
+            } else {
+                HydrationType::Full
+            }
+        );
+        assert_eq!(
+            snapshot.population_type(),
+            if population == CF_POPULATION_POLICY_FULL {
+                PopulationType::Full
+            } else {
+                PopulationType::AlwaysFull
+            }
+        );
+        assert_eq!(
+            snapshot.hydration_policy(),
+            HydrationPolicy::ValidationRequired
+        );
+        assert_eq!(
+            snapshot.supported_attribute(),
+            SupportedAttribute::FileLastWriteTime
+                | SupportedAttribute::DirectorySystem
+                | SupportedAttribute::PreserveInSyncForSyncEngine
+        );
+        assert!(snapshot.hardlinks_allowed());
+        assert_eq!(snapshot.status(), ProviderStatus::Disconnected);
+        assert_eq!(snapshot.provider_name().to_string()?, "Native Info Test");
+        assert_eq!(snapshot.version().to_string()?, "1.2.3");
+        assert_eq!(snapshot.blob(), blob);
+
+        let connection = Session::new().connect(&root.path, Probe::default())?;
+        for status in [
+            ProviderStatus::PopulateMetadata,
+            // A legal native flag combination must survive conversion without a panic.
+            ProviderStatus::Unknown(
+                (CF_PROVIDER_STATUS_POPULATE_METADATA | CF_PROVIDER_STATUS_POPULATE_CONTENT).0,
+            ),
+            ProviderStatus::Idle,
+        ] {
+            connection
+                .set_status(status)
+                .context("set provider status")?;
+            assert_eq!(connection.status()?, status);
+            // The handle-based snapshot can lag the connection status just after connect.
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while directory.sync_root_info()?.unwrap().status() != status {
+                assert!(
+                    Instant::now() < deadline,
+                    "native status did not reach {status:?}"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        // Snapshots remain valid and unchanged after status updates and handle closure.
+        drop(connection);
+        assert_eq!(
+            directory.sync_root_info()?.unwrap().status(),
+            ProviderStatus::Disconnected
+        );
+        drop(directory);
+        let copy = snapshot.clone();
+        drop(snapshot);
+        assert_eq!(copy.status(), ProviderStatus::Disconnected);
+        assert_eq!(copy.blob(), blob);
+        assert_eq!(copy.provider_name().to_string()?, "Native Info Test");
+    }
     Ok(())
 }
 

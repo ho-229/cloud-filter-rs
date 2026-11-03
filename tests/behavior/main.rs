@@ -16,6 +16,7 @@ fn main() -> ExitCode {
         Trial::test("file_usn", placeholder::file_usn_tracks_changes),
         Trial::test("restart_hydration", tickets::restart_hydration),
         Trial::test("sync_root_membership", lifecycle::sync_root_membership),
+        Trial::test("sync_root_info", lifecycle::sync_root_info),
         Trial::test("registration_lifecycle", lifecycle::registration_lifecycle),
         Trial::test("callback_triggers", lifecycle::callback_triggers),
         Trial::test(
