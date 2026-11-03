@@ -41,7 +41,7 @@ impl Probe {
             .into_owned();
         println!(
             "{kind}: {name}, pid={:?}, {detail:?}",
-            request.try_process().map(|p| p.id())
+            request.process().map(|p| p.id())
         );
         self.0.lock().unwrap().push(Event { kind, name });
     }

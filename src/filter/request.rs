@@ -68,19 +68,9 @@ impl Request {
         self.volume_serial
     }
 
-    /// Information of the user process that triggered the callback.
-    ///
-    /// The platform gives none for some callbacks, such as a cancelled fetch: then every field
-    /// is empty, zero or [None][std::option::Option::None]. Use [Request::try_process] to tell
-    /// that apart.
-    pub fn process(&self) -> Process {
-        self.try_process().unwrap_or_default()
-    }
-
-    /// Information of the user process that triggered the callback, or
-    /// [None][std::option::Option::None] if the platform gave none, as it does for some
-    /// callbacks, such as a cancelled fetch.
-    pub fn try_process(&self) -> Option<Process> {
+    /// Information about the process that triggered the callback, or [None] if
+    /// Windows did not provide it, as can happen for cancellation callbacks.
+    pub fn process(&self) -> Option<Process> {
         self.process.clone()
     }
 
@@ -157,7 +147,7 @@ impl std::fmt::Debug for Request {
 }
 
 /// Information about the calling process.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Process {
     name: OsString,
     id: u32,
@@ -287,7 +277,7 @@ mod tests {
         assert_eq!(request.path(), PathBuf::from(r"C:\root\file"));
         assert_eq!(request.file_blob(), &[1, 2, 3]);
         assert!(request.register_blob().is_empty());
-        let process = request.process();
+        let process = request.process().unwrap();
         drop(request);
         assert_eq!(process.id(), 42);
         assert_eq!(process.command_line(), Some("app.exe --test".into()));
@@ -299,9 +289,7 @@ mod tests {
         let request = unsafe { Request::new(CF_CALLBACK_INFO::default()) };
         assert!(request.file_blob().is_empty());
         assert!(request.register_blob().is_empty());
-        assert!(request.try_process().is_none());
-        assert!(request.process().name().is_empty());
-        assert!(request.process().path().is_none());
+        assert!(request.process().is_none());
         let _ = format!("{request:?}");
     }
 }

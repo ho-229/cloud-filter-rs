@@ -21,8 +21,8 @@ use super::{info, ticket, StateWatchEvent, SyncFilter};
 /// return completes directory population after all submitted batches.
 ///
 /// Provider-originated operations can bypass notifications. Test user actions from
-/// a separate process, and use `Request::try_process` because cancellation callbacks
-/// may have no process information. Local writes need separate change tracking;
+/// a separate process; `Request::process` may return `None` for cancellation callbacks.
+/// Local writes need separate change tracking;
 /// `state_changed` is implemented by this crate's directory watcher.
 pub trait Filter: Send + Sync {
     /// A placeholder hydration has been requested. This means that the placeholder should be
