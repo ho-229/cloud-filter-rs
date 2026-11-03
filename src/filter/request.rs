@@ -102,7 +102,6 @@ impl Request {
         self.file_size
     }
 
-    // For now this should be cached on creation
     /// The absolute path of the placeholder file/directory starting from the root directory of the
     /// volume.
     ///
@@ -136,16 +135,6 @@ impl Request {
     pub fn register_blob(&self) -> &[u8] {
         &self.register_blob
     }
-
-    // // https://docs.microsoft.com/en-us/windows/win32/api/cfapi/ne-cfapi-cf_callback_type#remarks
-    // // after 60 seconds of no report, windows will cancel the request with an error,
-    // // this function is a "hack" to avoid the timeout
-    // // https://docs.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfexecute#remarks
-    // // CfExecute will reset any timers as stated
-    // /// By default, the operating system will invalidate the callback after 60 seconds of no
-    // /// activity (meaning, no placeholder methods are invoked). If you are prone to this issue,
-    // /// consider calling this method or call placeholder methods more frequently.
-    // pub fn reset_timeout() {}
 
     /// A raw connection key used to identify the connection.
     pub(crate) fn connection_key(&self) -> RawConnectionKey {
@@ -232,7 +221,6 @@ impl Process {
         self.command_line.clone()
     }
 
-    // TODO: Could be optimized
     /// The absolute path to the main executable file of the process in the format of an NT path.
     ///
     /// This function returns [None][std::option::Option::None] when the operating system failed to

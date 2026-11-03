@@ -11,8 +11,6 @@ use crate::sealed;
 
 pub use nt_time::FileTime;
 
-// TODO: add something to convert an Option<T> to a *const T and *mut T
-
 pub(crate) trait ToHString
 where
     Self: AsRef<[u16]>,

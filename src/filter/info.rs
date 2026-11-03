@@ -163,8 +163,6 @@ pub struct CancelFetchPlaceholders(pub(crate) CF_CALLBACK_PARAMETERS_0_0);
 
 impl CancelFetchPlaceholders {
     /// Whether or not the callback failed as a result of the 60 second timeout.
-    ///
-    // Read more [here][crate::filter::Request::reset_timeout].
     pub fn timeout(&self) -> bool {
         (self.0.Flags & CloudFilters::CF_CALLBACK_CANCEL_FLAG_IO_TIMEOUT).0 != 0
     }

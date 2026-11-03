@@ -115,8 +115,6 @@ pub trait FileExt: AsRawHandle + Sealed {
     }
 }
 
-// TODO: is `CfDehydratePlaceholder` deprecated?
-// https://docs.microsoft.com/en-us/answers/questions/723805/what-is-the-behavior-of-file-ranges-in-different-p.html
 fn dehydrate<T: RangeBounds<u64>>(
     handle: RawHandle,
     range: T,

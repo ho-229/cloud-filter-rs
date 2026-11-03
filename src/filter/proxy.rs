@@ -42,8 +42,7 @@ macro_rules! callbacks {
     };
 }
 
-// TODO: const this
-pub fn callbacks<T: SyncFilter + 'static>() -> Callbacks {
+pub const fn callbacks<T: SyncFilter + 'static>() -> Callbacks {
     callbacks!(
         [CloudFilters::CF_CALLBACK_TYPE_FETCH_DATA, fetch_data],
         [CloudFilters::CF_CALLBACK_TYPE_VALIDATE_DATA, validate_data],

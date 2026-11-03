@@ -31,10 +31,10 @@ impl PlaceholderCreateInfo {
         })
     }
 
-    /// Marks this [PlaceholderCreateInfo] as having no child placeholders on
-    /// creation.
+    /// Marks the new directory as fully populated, disabling on-demand child enumeration.
     ///
-    /// Only applicable to placeholder directories.
+    /// Use for an empty directory or one whose children will all be created locally.
+    /// This does not prevent adding children later. Only applicable to placeholder directories.
     pub fn has_no_children(mut self) -> Self {
         self.0.Flags |= CloudFilters::CF_PLACEHOLDER_CREATE_FLAG_DISABLE_ON_DEMAND_POPULATION;
         self

@@ -77,7 +77,6 @@ impl Command for Write<'_> {
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         Ok(CF_OPERATION_PARAMETERS_0 {
             TransferData: CF_OPERATION_PARAMETERS_0_6 {
-                // TODO: add flag for disable_on_demand_population
                 Flags: CloudFilters::CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
                 Buffer: self.buffer.as_ptr() as *mut _,

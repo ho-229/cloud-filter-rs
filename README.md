@@ -35,7 +35,6 @@ For example:
 * Monitor and filter file operations
 * Declare a wide variety of supported file properties
 * Files are cached to the disk (if set), allowing for offline access
-* TODO: There is also a new API for custom UI, IStorageProviderStatusUISource
 
 As of right now, the Cloud Filter API is used in production by OneDrive, Google Drive, Dropbox, and many other clients.
 
