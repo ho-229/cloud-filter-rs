@@ -7,72 +7,115 @@
   </p>
 </div>
 
-> This is a fork of [wincs](https://github.com/ok-nick/wincs), thanks for [ok-nick](https://github.com/ok-nick)'s great work.
+> Forked from [wincs](https://github.com/ok-nick/wincs). Thanks to
+> [ok-nick](https://github.com/ok-nick) for the original implementation.
 
-`cloud-filter` is a safe and idiomatic wrapper around the native [Windows Cloud Filter API](https://docs.microsoft.com/en-us/windows/win32/cfapi/build-a-cloud-file-sync-engine). The Cloud Filter API enables developers to implement their own remote file system from within user space. It is much like [FUSE](#why-not-fuse), although it contains many first-class Windows features that are only available through its API.
-For example:
+`cloud-filter` is a Rust wrapper around the [Windows Cloud Files APIs](https://learn.microsoft.com/en-us/windows/win32/cfapi/build-a-cloud-file-sync-engine),
+for building sync providers with on-demand files and File Explorer integration.
 
-* [Placeholder files](#what-are-placeholders)
-    * Partial files
-    * Full files
-    * Pinned files
-* Built into the native File Explorer
-    * Shown in the navigation pane at the uppermost level
-    * Group sync engines as siblings
-    * Register/unregister and connect/disconnect sync engines
-        * Register to the File Explorer
-        * Connect your file operation handlers
-    * Custom name tag and icon
-    * Automatic/custom hydration state icons
-    * Progress indication
-        * File dialog
-        * Inline next to file in the File Explorer
-        * A file toast if the user did not explicitly hydrate the placeholder
-    * Thumbnails and metadata
-    * Top-level context menu actions (even on Windows 11)
-* Block specific apps from hydrating placeholders from Windows settings
-* Automatically free space via Windows Storage Sense
-* Monitor and filter file operations
-* Declare a wide variety of supported file properties
-* Files are cached to the disk (if set), allowing for offline access
+## Features
 
-As of right now, the Cloud Filter API is used in production by OneDrive, Google Drive, Dropbox, and many other clients.
+- Sync-root registration, policies, and File Explorer integration.
+- Placeholder creation, metadata and content-range queries, hydration, dehydration, and pin state.
+- Synchronous and asynchronous provider callbacks, with tickets for transferring data and
+  responding to file operations.
+- Local change notifications through `state_changed`, provider status, and custom item properties.
 
-## Examples
+## Concepts
 
-Below is a simple snippet of implementing a sync engine. For more, in-depth examples, please check out the [examples directory](https://github.com/ho-229/cloud-filter/tree/main/examples).
+- **Sync root:** a registered directory managed by a provider. Registration persists;
+  a connection attaches the running provider's callbacks.
+- **Placeholder:** an NTFS entry with file metadata and a provider-defined identity. It can
+  contain none, some, or all of the file's contents locally.
+- **Hydration / dehydration:** downloading missing contents / releasing local contents while
+  retaining the placeholder. Pinning requests that a file remain available locally.
+- **Synchronization:** `InSync` records the provider's assertion that an entry matches its
+  backing store. Local availability is independent of this state. The provider decides when
+  to upload edits, discover remote changes, and resolve conflicts.
+
+## Getting started
+
+Build on Windows with the MSVC Rust toolchain and use an NTFS volume for the sync root.
+
+### Try Cloud Mirror
+
+[Cloud Mirror](https://github.com/ho-229/cloud-filter-rs/tree/main/examples/cloud-mirror)
+uses a local directory as a stand-in for a remote server.
+
+1. Create two separate directories, such as `C:\cf-demo\server` and `C:\cf-demo\client`.
+   Put a few test files in `server`; `client` must be empty for its first registration.
+   Neither directory should be inside the other.
+2. From the repository, run:
+
+   ```powershell
+   cargo run --example cloud-mirror -- C:\cf-demo\server C:\cf-demo\client
+   ```
+
+3. Open `client` in File Explorer. Browsing creates placeholders; opening a file fetches its
+   contents from `server`. Local edits, renames, and deletions are written back to `server`.
+   Add `--readonly` to keep the server directory unchanged.
+4. Press Ctrl-C to disconnect. Run the same command to reconnect to the existing root.
+
+To remove the registration after stopping the provider:
+
+```powershell
+cargo run --example cloud-mirror -- unregister C:\cf-demo\client
+```
+
+Unregistering can remove placeholders whose contents are not fully available locally.
+See the [design guide](https://github.com/ho-229/cloud-filter-rs/blob/main/examples/cloud-mirror/DESIGN.md)
+for how the example handles synchronization.
+
+### Build a provider
+
+1. Register a directory with `SyncRootId` and `SyncRootInfo`, choosing its identity, display
+   information, and hydration/population policies.
+2. Implement `SyncFilter`, or the asynchronous `Filter`. Supply directory entries in
+   `fetch_placeholders` and file contents in `fetch_data`; use `state_changed` to discover local
+   edits for your upload logic.
+3. Attach the provider with `Session::connect` or `connect_async` and keep the returned
+   `Connection` alive. Dropping it disconnects while preserving the registration and placeholders.
+
+Use `Placeholder` to inspect and update entries. The optional `globs` feature enables
+`globset` parsing of directory search patterns. The
+[API documentation](https://docs.rs/cloud-filter/) describes published releases;
+`cargo doc --open` documents the checked-out version.
 
 ## FAQ
 
-### Why not FUSE?
-Unfortunately, FUSE is only implemented for Unix-like operating systems. Luckily, there are numerous alternatives for implementing file systems on Windows, such as `dokany` or `winfsp`.
+### Why CFAPI instead of FUSE, Dokany, or WinFsp?
 
-#### Why not `dokany`?
+[Dokan](https://dokan-dev.github.io/) and [WinFsp](https://winfsp.dev/) provide user-mode
+filesystems on Windows, including FUSE-compatible APIs. CFAPI works with cached files in an
+NTFS sync root and supplies Explorer's cloud-file states and controls. The choice depends on
+whether you need a general filesystem implementation or Windows sync-provider integration.
 
-`dokany` has a Rust API and is accessible using safe code. However, it is fairly low-level and does not have the first-class capabilities supported by `cloud-filter`.
+### Can the backing store be local?
 
-#### Why not `winfsp`?
+Yes; Cloud Mirror demonstrates this. For projecting a fast backing store into a filesystem,
+[ProjFS](https://learn.microsoft.com/en-us/windows/win32/projfs/projected-file-system) is another
+option. CFAPI is useful when offline availability, download progress, and cloud-file UI matter.
 
-Unlike `dokany`, `winfsp` currently does not have a Rust API. Perhaps at some point it may, but even so, it is impossible to have the first-class features supported by `cloud-filter`.
+### Does Microsoft still maintain CFAPI?
 
-### What are placeholders?
+Microsoft continues to extend the Cloud Files platform, including
+[Windows Search integration](https://learn.microsoft.com/en-us/windows/apps/develop/search/cloud-search-integration).
+This does not provide a fix schedule for individual CFAPI issues.
 
-Placeholders are internally [NTFS sparse files](https://docs.microsoft.com/en-us/windows/win32/fileio/sparse-files) and some [reparse point magic](https://docs.microsoft.com/en-us/windows/win32/cfapi/build-a-cloud-file-sync-engine#compatibility-with-applications-that-use-reparse-points). To put it simple, they are empty files that are meant to represent real files, although are not backed by any allocation unless requested. The way they work is heavily dependent on the sync engines' configuration. Know that if a process were to read the content of the placeholder, it would be "hydrated" (its file contents would be allocated). For more information, read [here](https://docs.microsoft.com/en-us/windows/win32/cfapi/build-a-cloud-file-sync-engine). 
- 
-### I know `cloud-filter` is maintained, but does Microsoft maintain the Cloud Filter API?
+## Development status
 
-Of course, it is used by Microsoft's very own OneDrive Client. I have reported numerous issues and received quick feedback via the [Microsoft Q&A](https://docs.microsoft.com/en-us/answers/search.html?c=7&includeChildren=false&type=question&redirect=search%2Fsearch&sort=newest&q=cfapi). There are a lot of undocumented and unimplemented portions of the API, although they are not necessary for the features described.
-
-### Why is `cloud-filter` only for remote files?
-
-You are more than welcome to use it for local files, although the extra features may not suit your needs. It is recommended to instead use [ProjFS](https://docs.microsoft.com/en-us/windows/win32/projfs/projected-file-system), of which is also backed by Microsoft, but dedicated to "high-speed backing data stores."
+Experimental and under active development; the API is still changing and is not production-ready.
+CFAPI bugs can corrupt placeholder metadata or leave operations stuck. The library includes
+workarounds for reproduced cases; use test data and keep backups while experimenting.
 
 ## Additional Resources
 
-If you are looking to contribute or want a deeper understanding of `cloud-filter`, be sure to check out these resources:
-* [Build a Cloud Sync Engine that Supports Placeholder Files](https://docs.microsoft.com/en-us/windows/win32/cfapi/build-a-cloud-file-sync-engine)
-* [Integrate a Cloud Storage Provider](https://docs.microsoft.com/en-us/windows/win32/shell/integrate-cloud-storage)
-* [Microsoft Q&A Containing "cfapi"](https://docs.microsoft.com/en-us/answers/search.html?c=7&includeChildren=false&type=question&redirect=search%2Fsearch&sort=newest&q=cfapi)
-* [Win32 API](https://docs.microsoft.com/en-us/windows/win32/cfapi/cloud-filter-reference)
-* [UWP API](https://docs.microsoft.com/en-us/uwp/api/windows.storage.provider?view=winrt-22621)
-    * Not all classes in the `Windows.Storage.Provider` namespace are used by cloud providers.
+- [Cloud Mirror design](https://github.com/ho-229/cloud-filter-rs/blob/main/examples/cloud-mirror/DESIGN.md)
+  and [SFTP design](https://github.com/ho-229/cloud-filter-rs/blob/main/examples/sftp/DESIGN.md)
+- [CFAPI behavior notes](https://github.com/ho-229/cloud-filter-rs/blob/main/tests/behavior/lifecycle.md)
+- [Cloud Filter API reference](https://learn.microsoft.com/en-us/windows/win32/cfapi/cloud-filter-reference)
+- [Windows.Storage.Provider reference](https://learn.microsoft.com/en-us/uwp/api/windows.storage.provider)
+
+## License
+
+[MIT](https://github.com/ho-229/cloud-filter-rs/blob/main/LICENSE).
