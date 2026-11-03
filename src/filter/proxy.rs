@@ -108,8 +108,7 @@ unsafe fn fetch_data<T: SyncFilter + 'static>(
             return;
         };
 
-        // Fails if the request was already cancelled or timed out. Nothing more can be done, and
-        // a panic here would abort the process: these callbacks are `extern "system"`.
+        // The failure response can itself fail if the request already ended.
         let _ = command::Write::fail(connection_key, transfer_key, range, e);
     }
 }
@@ -130,8 +129,7 @@ unsafe fn validate_data<T: SyncFilter + 'static>(
             return;
         };
 
-        // Fails if the request was already cancelled or timed out. Nothing more can be done, and
-        // a panic here would abort the process: these callbacks are `extern "system"`.
+        // The failure response can itself fail if the request already ended.
         let _ = command::Validate::fail(connection_key, transfer_key, range, e);
     }
 }
@@ -235,8 +233,7 @@ unsafe fn notify_dehydrate<T: SyncFilter + 'static>(
             return;
         };
 
-        // Fails if the request was already cancelled or timed out. Nothing more can be done, and
-        // a panic here would abort the process: these callbacks are `extern "system"`.
+        // The failure response can itself fail if the request already ended.
         let _ = command::Dehydrate::fail(connection_key, transfer_key, (), e);
     }
 }
@@ -268,8 +265,7 @@ unsafe fn notify_delete<T: SyncFilter + 'static>(
             return;
         };
 
-        // Fails if the request was already cancelled or timed out. Nothing more can be done, and
-        // a panic here would abort the process: these callbacks are `extern "system"`.
+        // The failure response can itself fail if the request already ended.
         let _ = command::Delete::fail(connection_key, transfer_key, (), e);
     }
 }
@@ -301,8 +297,7 @@ unsafe fn notify_rename<T: SyncFilter + 'static>(
             return;
         };
 
-        // Fails if the request was already cancelled or timed out. Nothing more can be done, and
-        // a panic here would abort the process: these callbacks are `extern "system"`.
+        // The failure response can itself fail if the request already ended.
         let _ = command::Rename::fail(connection_key, transfer_key, (), e);
     }
 }

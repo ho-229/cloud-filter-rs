@@ -50,7 +50,7 @@ impl PlaceholderCreateInfo {
         self
     }
 
-    /// Whether or not to overwrite an existing placeholder.
+    /// Allows replacing an existing placeholder.
     pub fn overwrite(mut self) -> Self {
         self.0.Flags |= CloudFilters::CF_PLACEHOLDER_CREATE_FLAG_SUPERSEDE;
         self
@@ -138,11 +138,11 @@ impl PlaceholderCreateInfo {
 
 impl Drop for PlaceholderCreateInfo {
     fn drop(&mut self) {
-        // Safety: `self.0.RelativeFileName.0` is a valid pointer to a valid UTF-16 string
+        // Reclaim the NUL-terminated buffer transferred by U16CString::into_raw in new().
         drop(unsafe { U16CString::from_raw(self.0.RelativeFileName.0 as *mut u16) });
 
         if !self.0.FileIdentity.is_null() {
-            // Safety: `self.0.FileIdentity` is a valid pointer to a valid slice
+            // blob() transferred this Box<[u8]> allocation with exactly FileIdentityLength bytes.
             drop(unsafe {
                 Box::from_raw(ptr::slice_from_raw_parts_mut(
                     self.0.FileIdentity as *mut u8,
@@ -156,7 +156,8 @@ impl Drop for PlaceholderCreateInfo {
 /// Creates multiple placeholder file/directories within the given path.
 ///
 /// Attempts every entry and returns the first error, if any. Each entry's
-/// [PlaceholderCreateInfo::result] retains its own result.
+/// [PlaceholderCreateInfo::result] retains its own result. Failures do not roll
+/// back successfully created entries.
 pub trait BatchCreate: sealed::Sealed {
     fn create<P: AsRef<Path>>(&mut self, path: P) -> core::Result<()>;
 }

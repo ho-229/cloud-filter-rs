@@ -29,28 +29,28 @@ use super::SyncRootId;
 pub struct SyncRootInfo(pub(crate) StorageProviderSyncRootInfo);
 
 impl SyncRootInfo {
-    /// Enables or disables the ability for files to be made available offline.
+    /// Whether the registration allows users to pin items for offline availability.
     pub fn allow_pinning(&self) -> bool {
         self.0.AllowPinning().unwrap()
     }
 
-    /// Sets the ability for files to be made available offline.
+    /// Sets whether users may pin items for offline availability.
     pub fn set_allow_pinning(&mut self, allow_pinning: bool) {
         self.0.SetAllowPinning(allow_pinning).unwrap()
     }
 
-    /// Sets the ability for files to be made available offline.
+    /// Sets whether users may pin items for offline availability.
     pub fn with_allow_pinning(mut self, allow_pinning: bool) -> Self {
         self.set_allow_pinning(allow_pinning);
         self
     }
 
-    /// Hard links are allowed on a placeholder within the same sync root.
+    /// Whether placeholder hardlinks are allowed within this sync root.
     pub fn allow_hardlinks(&self) -> bool {
         self.0.HardlinkPolicy().unwrap() == StorageProviderHardlinkPolicy::Allowed
     }
 
-    /// Sets the hard link are allowed on a placeholder within the same sync root.
+    /// Sets whether placeholder hardlinks are allowed within this sync root.
     pub fn set_allow_hardlinks(&mut self, allow_hardlinks: bool) {
         self.0
             .SetHardlinkPolicy(if allow_hardlinks {
@@ -61,13 +61,13 @@ impl SyncRootInfo {
             .unwrap()
     }
 
-    /// Sets the hard link are allowed on a placeholder within the same sync root.
+    /// Sets whether placeholder hardlinks are allowed within this sync root.
     pub fn with_allow_hardlinks(mut self, allow_hardlinks: bool) -> Self {
         self.set_allow_hardlinks(allow_hardlinks);
         self
     }
 
-    /// An optional display name that maps to the existing sync root registration.
+    /// The display-name resource. Registration requires a nonempty value.
     pub fn display_name(&self) -> OsString {
         self.0.DisplayNameResource().unwrap().to_os_string()
     }
@@ -208,12 +208,12 @@ impl SyncRootInfo {
         self
     }
 
-    /// The supported attributes of the sync root registration.
+    /// The in-sync policy: which metadata changes clear an item's in-sync state.
     pub fn supported_attribute(&self) -> FlagSet<SupportedAttribute> {
         FlagSet::new(self.0.InSyncPolicy().unwrap().0).expect("flags should be valid")
     }
 
-    /// Sets the supported attributes of the sync root registration.
+    /// Sets which metadata changes clear an item's in-sync state.
     pub fn set_supported_attribute(
         &mut self,
         supported_attribute: impl Into<FlagSet<SupportedAttribute>>,
@@ -225,7 +225,7 @@ impl SyncRootInfo {
             .unwrap();
     }
 
-    /// Sets the supported attributes of the sync root registration.
+    /// Sets which metadata changes clear an item's in-sync state.
     pub fn with_supported_attribute(
         mut self,
         supported_attribute: impl Into<FlagSet<SupportedAttribute>>,
@@ -250,12 +250,12 @@ impl SyncRootInfo {
         self
     }
 
-    /// The hydration policy of the sync root registration.
+    /// The modifiers applied to the primary [`Self::hydration_type`].
     pub fn hydration_policy(&self) -> FlagSet<HydrationPolicy> {
         FlagSet::new(self.0.HydrationPolicyModifier().unwrap().0).expect("flags should be valid")
     }
 
-    /// Sets the hydration policy of the sync root registration.
+    /// Sets the modifiers applied to the primary hydration type.
     pub fn set_hydration_policy(&mut self, hydration_policy: impl Into<FlagSet<HydrationPolicy>>) {
         self.0
             .SetHydrationPolicyModifier(StorageProviderHydrationPolicyModifier(
@@ -264,7 +264,7 @@ impl SyncRootInfo {
             .unwrap();
     }
 
-    /// Sets the hydration policy of the sync root registration.
+    /// Sets the modifiers applied to the primary hydration type.
     pub fn with_hydration_policy(
         mut self,
         hydration_policy: impl Into<FlagSet<HydrationPolicy>>,
@@ -398,7 +398,8 @@ impl From<StorageProviderProtectionMode> for ProtectionMode {
 }
 
 flags! {
-    /// Attributes supported by the sync root.
+    /// Metadata tracking flags that control clearing the in-sync state.
+    /// These do not upload metadata; the provider still performs synchronization.
     pub enum SupportedAttribute: u32 {
         FileCreationTime = StorageProviderInSyncPolicy::FileCreationTime.0,
         FileReadonly = StorageProviderInSyncPolicy::FileReadOnlyAttribute.0,
@@ -410,6 +411,7 @@ flags! {
         DirectoryHidden = StorageProviderInSyncPolicy::DirectoryHiddenAttribute.0,
         DirectorySystem = StorageProviderInSyncPolicy::DirectorySystemAttribute.0,
         DirectoryLastWriteTime = StorageProviderInSyncPolicy::DirectoryLastWriteTime.0,
+        /// Preserves in-sync state for changes made by the connected sync provider.
         PreserveInSyncForSyncEngine = StorageProviderInSyncPolicy::PreserveInsyncForSyncEngine.0,
     }
 }
@@ -446,7 +448,7 @@ impl From<StorageProviderHydrationPolicy> for HydrationType {
 }
 
 flags! {
-    /// Hydration policy
+    /// Modifiers for the primary [`HydrationType`].
     pub enum HydrationPolicy: u32 {
         ValidationRequired = StorageProviderHydrationPolicyModifier::ValidationRequired.0,
         StreamingAllowed = StorageProviderHydrationPolicyModifier::StreamingAllowed.0,
@@ -455,13 +457,13 @@ flags! {
     }
 }
 
-/// The population policy of the sync root registration.
+/// Controls directory enumeration, independently of file-content hydration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PopulationType {
-    /// If the placeholder files or directories are not fully populated,
-    /// the platform will request that the sync provider populate them before completing a user request.
+    /// Access to an incomplete directory requests all of its children from the provider.
     Full,
-    /// The platform will assume that placeholder files and directories are always available locally.
+    /// The provider maintains the complete local namespace. Windows does not request
+    /// on-demand directory population; file contents may still need hydration.
     AlwaysFull,
 }
 

@@ -24,7 +24,7 @@ use cloud_filter::{
 };
 use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
 
-// MUST be a multiple of 4096
+// Keep intermediate CF transfers aligned; the final chunk may end at an unaligned EOF.
 const CHUNK_SIZE_BYTES: usize = 65536;
 
 mod writeback;
@@ -201,9 +201,9 @@ fn canonical_path(path: &Path) -> std::io::Result<PathBuf> {
 
 #[derive(Debug, Clone)]
 struct MirrorFiles {
-    /// Destination folder
+    /// Local sync root containing placeholders and user edits.
     client_path: PathBuf,
-    /// Source folder
+    /// Backing store for downloads and published uploads.
     server_path: PathBuf,
     readonly: bool,
     renames: Arc<Mutex<HashMap<PathBuf, PathBuf>>>,
@@ -508,7 +508,7 @@ impl MirrorFiles {
                     && info.is_in_sync()
                     && info.modified_data_size() == 0 =>
             {
-                // Provider-initiated dehydration does not call our dehydrate callback.
+                // Provider-initiated dehydration can bypass our dehydrate callback.
                 // Check the source here too, and release the query handle before
                 // acquiring exclusive access. Windows rechecks in-sync atomically.
                 let size = self

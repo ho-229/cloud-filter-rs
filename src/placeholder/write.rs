@@ -64,15 +64,16 @@ impl ConvertOptions {
 
     /// Dehydrate the placeholder after conversion.
     ///
-    /// This flag is only applicable to files.
+    /// Files only. Conversion with dehydration requires exclusive access, for
+    /// example through [`super::OpenOptions::exclusive`].
     pub fn dehydrate(mut self) -> Self {
         self.flags |= CloudFilters::CF_CONVERT_FLAG_DEHYDRATE;
         self
     }
 
-    /// Marks the placeholder as "partially full," such that
+    /// Marks the directory as partially populated, enabling
     /// [SyncFilter::fetch_placeholders][crate::filter::SyncFilter::fetch_placeholders]
-    /// will be invoked when this directory is next accessed so that the remaining placeholders are inserted.
+    /// when a later access needs its children.
     ///
     /// Only applicable to placeholder directories.
     pub fn has_children(mut self) -> Self {
@@ -133,27 +134,29 @@ pub struct UpdateOptions<'a> {
 }
 
 impl<'a> UpdateOptions<'a> {
-    /// [Metadata] contains file system metadata about the placeholder to be updated.
+    /// Applies metadata while preserving timestamps and attributes whose supplied values are zero.
     ///
-    /// File size will be truncates to 0 if not specified, otherwise to the specified size.
+    /// File size has no preserve sentinel: a zero size truncates the file. Omitting
+    /// this option entirely leaves the current metadata unchanged.
     pub fn metadata(mut self, metadata: Metadata) -> Self {
         self.flags &= !(CloudFilters::CF_UPDATE_FLAG_PASSTHROUGH_FS_METADATA);
         self.metadata = Some(metadata);
         self
     }
 
-    /// Fields in [Metadata] will be updated.
+    /// Passes metadata to the filesystem without CFAPI's zero-field filtering.
+    /// The underlying filesystem determines how each supplied value is interpreted.
     pub fn metadata_all(mut self, metadata: Metadata) -> Self {
         self.flags |= CloudFilters::CF_UPDATE_FLAG_PASSTHROUGH_FS_METADATA;
         self.metadata = Some(metadata);
         self
     }
 
-    /// Extended ranges to be dehydrated.
+    /// Byte ranges to invalidate and dehydrate during the update.
     ///
-    /// All the offsets and lengths should be `PAGE_SIZE` aligned.
-    /// Passing a single range with Offset `0` and Length `CF_EOF` will invalidate the entire file.
-    /// This has the same effect as passing the flag `CF_UPDATE_FLAG_DEHYDRATE` instead.
+    /// Offsets and lengths must be page-aligned. The update requires exclusive
+    /// file access. For the whole file, use [`Self::dehydrate`], which overrides
+    /// these ranges; this method accepts finite Rust ranges, not the `CF_EOF` sentinel.
     ///
     /// # Panics
     /// Panics for reversed ranges or offsets outside the signed 64-bit Windows range.
@@ -186,7 +189,7 @@ impl<'a> UpdateOptions<'a> {
         self
     }
 
-    /// Marks a placeholder as not in sync. `Sync Pending` will be shown in explorer.
+    /// Clears the placeholder's in-sync state without uploading or downloading data.
     ///
     /// See also
     /// [SetInSyncState](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfsetinsyncstate),
@@ -196,13 +199,15 @@ impl<'a> UpdateOptions<'a> {
         self
     }
 
-    /// The platform dehydrates the file after updating the placeholder successfully.
+    /// Dehydrates the entire file after a successful update, overriding any explicit ranges.
+    /// Requires exclusive file access, for example through [`super::OpenOptions::exclusive`].
     pub fn dehydrate(mut self) -> Self {
         self.flags |= CloudFilters::CF_UPDATE_FLAG_DEHYDRATE;
         self
     }
 
-    /// Disables on-demand population for directories.
+    /// Marks a directory fully populated, disabling on-demand child enumeration.
+    /// It need not be empty, and children may still be added later.
     pub fn has_no_children(mut self) -> Self {
         self.flags |= CloudFilters::CF_UPDATE_FLAG_DISABLE_ON_DEMAND_POPULATION;
         self
@@ -227,6 +232,8 @@ impl<'a> UpdateOptions<'a> {
         self
     }
 
+    /// Replaces the identity blob. An empty slice preserves it; use [`Self::remove_blob`]
+    /// to clear it. Panics if the supplied blob exceeds 4 KiB.
     pub fn blob(mut self, blob: &'a [u8]) -> Self {
         assert!(
             blob.len() <= CloudFilters::CF_PLACEHOLDER_MAX_FILE_IDENTITY_LENGTH as usize,
@@ -253,8 +260,8 @@ impl Default for UpdateOptions<'_> {
 impl Placeholder {
     /// Marks a placeholder as in sync or not.
     ///
-    /// If the passed [Usn] is outdated, the call will fail,
-    /// otherwise the [Usn] will be updated.
+    /// A supplied nonzero [Usn] must match the file's current USN. `None` or zero
+    /// skips that check. On success, a supplied USN receives the resulting value.
     ///
     /// See also
     /// [SetInSyncState](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfsetinsyncstate),
@@ -280,6 +287,7 @@ impl Placeholder {
     }
 
     /// Sets the pin state of the placeholder.
+    /// Success confirms the state change, not completion of hydration or dehydration.
     ///
     /// See also
     /// [CfSetPinState](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfsetpinstate),
@@ -289,10 +297,10 @@ impl Placeholder {
         Ok(self)
     }
 
-    /// Converts a file to a placeholder file.
+    /// Converts an existing file or directory to a placeholder, preserving its metadata.
     ///
-    /// If the passed [Usn] is outdated, the call will fail,
-    /// otherwise the [Usn] will be updated.
+    /// A supplied [Usn] receives the value after conversion; its input value is ignored.
+    /// If the options request dehydration, the caller must hold exclusive file access.
     ///
     /// See also [CfConvertToPlaceholder](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfconverttoplaceholder).
     pub fn convert_to_placeholder<'a>(
@@ -315,6 +323,10 @@ impl Placeholder {
     }
 
     /// Updates various characteristics of a placeholder.
+    ///
+    /// A supplied nonzero [Usn] guards against intervening changes and receives the
+    /// resulting USN on success. `None` or zero skips the comparison.
+    /// Updates that dehydrate data require exclusive file access.
     ///
     /// See also [CfUpdatePlaceholder](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfupdateplaceholder).
     pub fn update<'a>(

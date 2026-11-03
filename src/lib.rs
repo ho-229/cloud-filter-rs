@@ -20,10 +20,7 @@ pub mod root;
 pub mod usn;
 pub mod utility;
 
-/// Contains low-level structs for directly executing Cloud Filter operations.
-///
-/// The [command][crate::command] API is exposed through various higher-level structs, like
-/// [Request][crate::request::Request] and [Placeholder][crate::placeholder::Placeholder].
+/// Internal operations submitted through `CfExecute`, used by callback tickets.
 mod command;
 
 mod sealed {

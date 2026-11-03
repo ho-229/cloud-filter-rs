@@ -30,7 +30,7 @@ use crate::{
 pub struct Read<'a> {
     /// The buffer of data to read into.
     pub buffer: &'a mut [u8],
-    /// The starting offset of from where to read.
+    /// The byte offset at which to read.
     pub position: u64,
 }
 
@@ -62,7 +62,7 @@ impl Command for Read<'_> {
 pub struct Write<'a> {
     /// The buffer of data to write into the file.
     pub buffer: &'a [u8],
-    /// The starting offset of from where to write.
+    /// The byte offset at which to write.
     pub position: u64,
 }
 
@@ -90,9 +90,8 @@ impl Command for Write<'_> {
 impl Fallible for Write<'_> {
     type Context = Range<u64>;
 
-    /// Fails the fetch of `range`, the range the platform asked for: failing a transfer of
-    /// nothing is refused as an invalid operation, and the reading
-    /// program waits for the platform's timeout instead.
+    /// Fails the requested range supplied in `context`. A zero-length failure can
+    /// be rejected by Windows, leaving the reader waiting for the request timeout.
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
@@ -220,7 +219,7 @@ impl Command for CreatePlaceholders<'_> {
                 CompletionStatus: Foundation::STATUS_SUCCESS,
                 PlaceholderTotalCount: utility::checked_offset(self.total)?,
                 PlaceholderArray: match self.placeholders.is_empty() {
-                    // If the slice is empty there will be an invalid memory access error, not with null pointers, however.
+                    // Empty transfers use NULL, not an empty slice's dangling pointer.
                     true => ptr::null_mut(),
                     false => self.placeholders.as_mut_ptr().cast(),
                 },
@@ -261,7 +260,7 @@ impl Fallible for CreatePlaceholders<'_> {
     }
 }
 
-/// Validate the data range in the placeholder file is valid.
+/// Acknowledge a data range that the provider has validated.
 #[derive(Debug)]
 pub struct Validate {
     /// The range of data to validate as "good."
@@ -314,7 +313,7 @@ impl Fallible for Validate {
     }
 }
 
-/// Confirm dehydration of the placeholder file and optionally update its blob.
+/// Permit a pending dehydration and optionally replace the file identity.
 #[derive(Debug)]
 pub struct Dehydrate<'a> {
     /// Optional file blob to update.
@@ -368,7 +367,7 @@ impl Fallible for Dehydrate<'_> {
     }
 }
 
-/// Confirm deletion of the placeholder.
+/// Permit a pending deletion or undelete.
 #[derive(Debug)]
 pub struct Delete;
 
@@ -412,7 +411,7 @@ impl Fallible for Delete {
     }
 }
 
-/// Confirm rename/move of the placeholder.
+/// Permit a pending rename or move.
 #[derive(Debug)]
 pub struct Rename;
 

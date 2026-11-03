@@ -32,8 +32,8 @@ impl TestDirectory {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        // In the user's profile, as sync roots are: the shell cannot reach the states of an item
-        // under a hidden folder, such as AppData, where the temporary directory is.
+        // Shell property reads under AppData/Temp failed on the test host. Prefer a
+        // test-owned directory directly under the profile; the cause is unverified.
         let profile =
             std::env::var_os("USERPROFILE").map_or_else(std::env::temp_dir, PathBuf::from);
         let path = profile.join(format!("cf-properties-{}-{stamp}", std::process::id()));
@@ -144,7 +144,7 @@ pub fn custom_states_show_in_explorer() -> Result<(), Failed> {
         .mark_in_sync()
         .create(&directory.0)
         .context("create file placeholder")?;
-    // Creating a folder placeholder that is in sync is refused; converting a plain folder works.
+    // Use conversion to prepare a populated, in-sync directory for the property query.
     let (file, folder) = (
         directory.0.join("marked'文件.txt"),
         directory.0.join("marked"),

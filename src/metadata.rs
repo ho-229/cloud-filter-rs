@@ -65,7 +65,7 @@ impl Metadata {
         self
     }
 
-    /// File attributes.
+    /// Adds file attribute bits to the existing flags.
     pub fn attributes(mut self, attributes: u32) -> Self {
         self.0.BasicInfo.FileAttributes |= attributes;
         self

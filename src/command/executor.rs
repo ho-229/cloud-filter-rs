@@ -29,19 +29,18 @@ pub trait Fallible: Command {
 
 /// A Cloud Filter command used to execute various functions.
 pub trait Command: Sized {
-    /// The [CF_OPERATION_TYPE][windows::Win32::Storage::CloudFilters::CF_OPERATION_TYPE]
-    /// corresponding to the command.
+    /// The [CF_OPERATION_TYPE] corresponding to the command.
     const OPERATION: CF_OPERATION_TYPE;
     /// The result of the command, if applicable.
     type Result;
-    /// The union field of
-    /// [CF_OPERATION_PARAMETERS_0][windows::Win32::Storage::CloudFilters::CF_OPERATION_PARAMETERS_0].
+    /// The native union field type used to calculate this operation's parameter size.
     type Field;
 
     /// Gathers and returns the result of the command.
     ///
     /// # Safety
-    /// It is expected to index the union parameter, hence `unsafe`.
+    /// The union member corresponding to `Self::OPERATION` must be initialized,
+    /// including any output fields read by this implementation.
     unsafe fn result(info: CF_OPERATION_PARAMETERS_0) -> Self::Result;
 
     /// Creates and returns the union.

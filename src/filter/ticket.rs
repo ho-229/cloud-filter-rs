@@ -56,7 +56,7 @@ pub struct FetchData {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
     file_size: u64,
-    /// The range the platform asked for, which failing the fetch names.
+    /// The requested range to include in a failed transfer response.
     range: Range<u64>,
 }
 
@@ -88,10 +88,10 @@ impl FetchData {
         )
     }
 
-    /// Displays a progress bar next to the file in the file explorer to show the progress of the
-    /// current operation. In addition, the standard Windows file progress dialog will open
-    /// displaying the speed and progress based on the values set. During background hydrations,
-    /// an interactive toast will appear notifying the user of an operation with a progress bar.
+    /// Reports provider progress while servicing a hydration request.
+    /// This is advisory: it neither transfers data nor completes the fetch, and the
+    /// UI shown depends on how hydration was initiated.
+    /// Successful reports reset the pending fetch's timeout while the provider works.
     pub fn report_progress(&self, total: u64, completed: u64) -> core::Result<()> {
         unsafe {
             CfReportProviderProgress(
@@ -127,6 +127,8 @@ impl utility::ReadAt for FetchData {
     /// Read data at an offset from a placeholder file.
     ///
     /// This method is equivalent to calling `CfExecute` with `CF_OPERATION_TYPE_RETRIEVE_DATA`.
+    /// Requires `HydrationPolicy::ValidationRequired` and previously transferred data;
+    /// it does not fetch missing bytes from the remote store.
     fn read_at(&self, buf: &mut [u8], offset: u64) -> core::Result<u64> {
         command::Read {
             buffer: buf,
@@ -176,7 +178,7 @@ impl ValidateData {
         }
     }
 
-    /// Validates the data range in the placeholder file is valid.
+    /// Acknowledges that the provider has validated the specified byte range.
     ///
     /// The offset must be 4 KiB aligned. The length must be a multiple of 4 KiB,
     /// unless the range ends on or beyond the logical file size. An unbounded end

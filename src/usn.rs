@@ -18,10 +18,8 @@ use windows::{
 /// An update sequence number identifies a file's latest change-journal record.
 /// It is not a per-write counter or a remote version identifier.
 ///
-/// A USN is commonly used to prevent a change from happening unless the USN is up to date. For
-/// instance, [Placeholder::update][crate::placeholder::Placeholder::update] will not apply the specified changes
-/// unless if the passed USN matches the most recent USN of the file. This avoids applying changes
-/// that may be out of date.
+/// Passing a nonzero USN to [Placeholder::update][crate::placeholder::Placeholder::update]
+/// guards against changes since that value was read. Zero or `None` skips the check.
 pub type Usn = i64;
 
 pub(crate) fn read(handle: RawHandle) -> core::Result<Usn> {

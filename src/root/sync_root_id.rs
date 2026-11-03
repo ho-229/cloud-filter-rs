@@ -27,14 +27,14 @@ use crate::utility::{storage_path, ToHString};
 
 use super::SyncRootInfo;
 
-/// Returns a list of active sync roots.
+/// Lists roots registered with the WinRT sync-root manager, including disconnected providers.
 pub fn active_roots() -> core::Result<Vec<SyncRootInfo>> {
     StorageProviderSyncRootManager::GetCurrentSyncRoots()
         .map(|list| list.into_iter().map(SyncRootInfo).collect())
 }
 
-/// Returns whether or not the Cloud Filter API is supported (or at least the UWP part of it, for
-/// now).
+/// Queries support through the WinRT sync-root manager.
+/// This does not probe every native CFAPI operation or filesystem.
 pub fn is_supported() -> core::Result<bool> {
     StorageProviderSyncRootManager::IsSupported()
 }
@@ -50,12 +50,12 @@ pub struct SyncRootIdBuilder {
 impl SyncRootIdBuilder {
     /// Create a new builder with the given provider name.
     ///
-    /// The provider name MUST NOT contain exclamation points and it must be within
-    /// [255](https://docs.microsoft.com/en-us/windows/win32/api/cfapi/ns-cfapi-cf_sync_root_provider_info#remarks) characters.
+    /// The builder limits the name to 255 UTF-16 code units and rejects `!` delimiters.
+    /// This does not validate the length of the complete registration ID.
     ///
     /// # Panics
     ///
-    /// Panics if the provider name is longer than 255 characters or contains exclamation points.
+    /// Panics if the provider name exceeds that limit or contains exclamation points.
     pub fn new(provider_name: impl AsRef<OsStr>) -> Self {
         let name = U16String::from_os_str(&provider_name);
 
@@ -80,16 +80,16 @@ impl SyncRootIdBuilder {
     /// The security id of the Windows user. Retrieve this value via the
     /// [SecurityId] struct.
     ///
-    /// By default, a sync root registered without a user security id will be installed globally.
+    /// The default component is empty; the builder does not infer the current user.
     pub fn user_security_id(mut self, security_id: SecurityId) -> Self {
         self.user_security_id = security_id;
         self
     }
 
-    /// The name of the user's account.
+    /// The provider's stable account identifier, used to distinguish sync roots.
     ///
-    /// This value does not have any actual meaning and it could theoretically be anything.
-    /// However, it is encouraged to set this value to the account name of the user on the remote.
+    /// This becomes part of the registration ID, not a display label. Avoid `!`,
+    /// which separates components and would make [`SyncRootId::to_components`] fail.
     pub fn account_name(mut self, account_name: impl AsRef<OsStr>) -> Self {
         self.account_name = U16String::from_os_str(&account_name);
         self
@@ -116,7 +116,7 @@ impl SyncRootIdBuilder {
 /// as specified
 /// [here](https://docs.microsoft.com/en-us/uwp/api/windows.storage.provider.storageprovidersyncrootinfo.id?view=winrt-22000#property-value).
 ///
-/// A [SyncRootId] stores an inner, reference counted [HSTRING][windows::core::HSTRING], making this struct cheap to clone.
+/// A [SyncRootId] stores a reference-counted [HSTRING], making it cheap to clone.
 #[derive(Debug, Clone)]
 pub struct SyncRootId(pub(crate) HSTRING);
 
@@ -125,7 +125,7 @@ impl SyncRootId {
     // unicode exclamation point as told in the specification above
     const SEPARATOR: u16 = 0x21;
 
-    /// Creates a [SyncRootId] from the sync root at the given path.
+    /// Looks up the registered sync-root ID for a folder; does not create a registration.
     pub fn from_path<P: AsRef<Path>>(path: P) -> core::Result<Self> {
         let path = storage_path(path.as_ref())?;
         StorageProviderSyncRootManager::GetSyncRootInformationForFolder(
@@ -211,7 +211,7 @@ impl SyncRootId {
         U16Str::from_slice(self.0.as_wide())
     }
 
-    /// A reference to the [SyncRootId] as an [HSTRING][windows::core::HSTRING] (its inner value).
+    /// Borrows the underlying [HSTRING].
     pub fn as_hstring(&self) -> &HSTRING {
         &self.0
     }
@@ -264,7 +264,7 @@ impl SecurityId {
         Self(id)
     }
 
-    /// The [SecurityId] for the logged in user.
+    /// The SID from the calling thread's effective token, including impersonation.
     pub fn current_user() -> core::Result<Self> {
         unsafe {
             let mut token_size = 0;

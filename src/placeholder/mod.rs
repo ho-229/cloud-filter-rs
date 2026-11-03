@@ -40,23 +40,23 @@ impl Placeholder {
     }
 }
 
-/// The pin state of a placeholder.
+/// The user's intent for local availability and synchronization of a placeholder.
 ///
-/// [Read more
-/// here](https://docs.microsoft.com/en-us/windows/win32/api/cfapi/ne-cfapi-cf_pin_state#remarks)
+/// Changing this state does not wait for hydration or dehydration to finish.
+/// Providers can observe pin changes through [`crate::filter::SyncFilter::state_changed`]
+/// and perform the corresponding I/O; the state alone does not guarantee a CF callback.
+/// See [CF_PIN_STATE](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ne-cfapi-cf_pin_state).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PinState {
-    /// The platform could decide freely.
+    /// No preference for keeping or releasing local file contents.
     Unspecified,
-    /// [SyncFilter::fetch_data][crate::filter::SyncFilter::fetch_data] will be called to hydrate the rest
-    /// of the placeholder's data. Any dehydration requests will fail automatically.
+    /// Requests local availability. Windows rejects dehydration while pinned.
     Pinned,
-    /// [SyncFilter::dehydrate][crate::filter::SyncFilter::dehydrate] will be called to dehydrate the rest
-    /// of the placeholder's data.
+    /// Requests release of local contents; the file may still be hydrated for reads.
     Unpinned,
-    /// The placeholder will never sync to the cloud.
+    /// Excludes the item from cloud synchronization. Only the provider can set this state.
     Excluded,
-    /// The placeholder will inherit the parent placeholder's pin state.
+    /// Re-evaluates pin state using Windows' inheritance rules for the parent and item.
     Inherit,
 }
 

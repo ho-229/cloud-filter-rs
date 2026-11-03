@@ -25,17 +25,16 @@ impl FetchData {
         (self.0.Flags & CloudFilters::CF_CALLBACK_FETCH_DATA_FLAG_EXPLICIT_HYDRATION).0 != 0
     }
 
-    /// The amount of bytes that must be written to the placeholder.
+    /// The byte range required to satisfy the pending hydration request.
     pub fn required_file_range(&self) -> Range<u64> {
         (self.0.RequiredFileOffset as u64)
             ..(self.0.RequiredFileOffset + self.0.RequiredLength) as u64
     }
 
-    /// The amount of bytes that must be written to the placeholder.
+    /// An advisory range that may be fetched together with the required bytes.
     ///
-    /// If the sync provider prefer to give data in larger chunks, use this range instead.
-    ///
-    /// [Discussion](https://docs.microsoft.com/en-us/answers/questions/748214/what-is-fetchdataoptionalfileoffset-cfapi.html).
+    /// Use it for prefetching when larger transfers are efficient. It does not
+    /// replace the obligation to supply [`Self::required_file_range`].
     pub fn optional_file_range(&self) -> Range<u64> {
         (self.0.OptionalFileOffset as u64)
             ..(self.0.OptionalFileOffset + self.0.OptionalLength) as u64
@@ -68,14 +67,12 @@ impl Debug for FetchData {
 pub struct CancelFetchData(pub(crate) CF_CALLBACK_PARAMETERS_0_0);
 
 impl CancelFetchData {
-    /// Whether or not the callback failed as a result of the 60 second timeout.
+    /// The pending request was cancelled because the platform's 60-second timer expired.
     pub fn timeout(&self) -> bool {
         (self.0.Flags & CloudFilters::CF_CALLBACK_CANCEL_FLAG_IO_TIMEOUT).0 != 0
     }
 
-    /// The user has cancelled the request manually.
-    ///
-    /// A user could cancel a request through a download toast?
+    /// Windows reports cancellation from the app-initiated download toast.
     pub fn user_cancelled(&self) -> bool {
         (self.0.Flags & CloudFilters::CF_CALLBACK_CANCEL_FLAG_IO_ABORTED).0 != 0
     }
@@ -131,18 +128,21 @@ impl FetchPlaceholders {
         Self(wide_string(info.Pattern.0).unwrap_or_default())
     }
 
-    /// A glob pattern specifying the files that should be fetched.
+    /// The platform's advisory search pattern, parsed with `globset`.
     ///
-    /// This field is completely optional and does not have to be respected.
+    /// This is a hint, not a filter on the directory's complete contents. With
+    /// `PopulationType::Full`, submit all remaining children before returning success.
+    /// `globset` syntax is not identical to Windows filename matching.
     #[cfg(feature = "globs")]
     pub fn pattern(&self) -> Result<globset::Glob, globset::Error> {
         let pattern = self.0.to_string_lossy();
         globset::Glob::new(&pattern)
     }
 
-    /// A glob pattern specifying the files that should be fetched.
+    /// The platform's advisory search pattern, converted to a UTF-8 string.
     ///
-    /// This field is completely optional and does not have to be respected.
+    /// This is a hint, not a filter on the directory's complete contents. With
+    /// `PopulationType::Full`, submit all remaining children before returning success.
     #[cfg(not(feature = "globs"))]
     pub fn pattern(&self) -> String {
         self.0.to_string_lossy().into_owned()
@@ -162,14 +162,12 @@ impl Debug for FetchPlaceholders {
 pub struct CancelFetchPlaceholders(pub(crate) CF_CALLBACK_PARAMETERS_0_0);
 
 impl CancelFetchPlaceholders {
-    /// Whether or not the callback failed as a result of the 60 second timeout.
+    /// The pending request was cancelled because the platform's 60-second timer expired.
     pub fn timeout(&self) -> bool {
         (self.0.Flags & CloudFilters::CF_CALLBACK_CANCEL_FLAG_IO_TIMEOUT).0 != 0
     }
 
-    /// The user has cancelled the request manually.
-    ///
-    /// A user could cancel a request through a download toast?
+    /// Windows reports cancellation from the app-initiated download toast.
     pub fn user_cancelled(&self) -> bool {
         (self.0.Flags & CloudFilters::CF_CALLBACK_CANCEL_FLAG_IO_ABORTED).0 != 0
     }
@@ -260,12 +258,13 @@ impl Dehydrated {
         (self.0.Flags & CloudFilters::CF_CALLBACK_DEHYDRATE_COMPLETION_FLAG_BACKGROUND).0 != 0
     }
 
-    /// Whether or not the placeholder was already hydrated.
+    /// Whether the placeholder had hydrated data before this dehydration request.
+    /// This describes its previous state, not its current residency.
     pub fn already_hydrated(&self) -> bool {
         (self.0.Flags & CloudFilters::CF_CALLBACK_DEHYDRATE_COMPLETION_FLAG_DEHYDRATED).0 != 0
     }
 
-    /// The reason the file is being dehydrated.
+    /// The reason for the completed dehydration.
     pub fn reason(&self) -> Option<DehydrationReason> {
         DehydrationReason::from_win32(self.0.Reason)
     }

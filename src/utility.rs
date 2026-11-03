@@ -15,11 +15,7 @@ pub(crate) trait ToHString
 where
     Self: AsRef<[u16]>,
 {
-    /// Converts a 16-bit buffer to a Windows reference-counted [HSTRING][windows::core::HSTRING].
-    ///
-    /// # Panics
-    ///
-    /// Panics if [HeapAlloc](https://docs.microsoft.com/en-us/windows/win32/api/heapapi/nf-heapapi-heapalloc) fails.
+    /// Converts a UTF-16 buffer to a Windows reference-counted [HSTRING].
     fn to_hstring(&self) -> HSTRING {
         HSTRING::from_wide(self.as_ref()).unwrap()
     }
@@ -55,9 +51,9 @@ pub(crate) fn storage_path(path: &Path) -> core::Result<PathBuf> {
 /// [CfExecute](https://docs.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfexecute)
 /// function's `CF_OPERATION_TYPE_RETRIEVE_DATA` operation.
 ///
-/// You should not need to implement this trait yourself, but rather use the
-/// [utility::ReadAt](crate::utility::ReadAt) trait as a bound for your argument.
+/// This trait is sealed; callers use the implementations on callback tickets.
 pub trait ReadAt: sealed::Sealed {
+    /// Reads into `buf` and returns the number of bytes retrieved, which may be shorter.
     fn read_at(&self, buf: &mut [u8], offset: u64) -> core::Result<u64>;
 }
 
@@ -67,9 +63,10 @@ pub trait ReadAt: sealed::Sealed {
 /// [CfExecute](https://docs.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfexecute)
 /// function's `CF_OPERATION_TYPE_TRANSFER_DATA` operation.
 ///
-/// You should not need to implement this trait yourself, but rather use the
-/// [utility::WriteAt](crate::utility::WriteAt) trait as a bound for your argument.
+/// This trait is sealed; callers use the implementation on the hydration ticket.
 pub trait WriteAt: sealed::Sealed {
+    /// Transfers `buf` at a 4 KiB-aligned offset. Its length must also be aligned,
+    /// unless the transfer reaches or extends beyond the logical EOF.
     fn write_at(&self, buf: &[u8], offset: u64) -> core::Result<()>;
 }
 

@@ -67,6 +67,8 @@ pub trait Filter: Send + Sync {
     /// Ordinary directories and fully populated directories do not need this callback.
     /// `AlwaysFull` population disables it entirely. Completion is not a remote refresh
     /// subscription: the provider must discover later remote changes itself.
+    /// With `PopulationType::Full`, supply all remaining children, even when the
+    /// search pattern matches only a subset.
     ///
     /// Submit any number of batches through the ticket and await all work before
     /// returning. `Ok(())` completes population and disables further on-demand
@@ -168,21 +170,16 @@ pub trait Filter: Send + Sync {
         async {}
     }
 
-    /// Paths to recheck after name, content, size, or attribute changes, or watcher termination.
+    /// Reports paths to recheck after name, content, size, or attribute changes.
     ///
-    /// Lost notifications trigger an internal root scan, reported incrementally through
-    /// [StateWatchEvent::Changed]. Recheck current state; paths may repeat or be unchanged.
-    /// `Stopped` is terminal for the watcher. Normal disconnect emits no error.
-    /// This callback runs on the watcher thread: queue slow work elsewhere.
+    /// This crate uses [ReadDirectoryChangesW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw),
+    /// independently of CF callbacks, to detect local writes and pin/unpin changes.
+    /// Lost notifications trigger a root scan delivered in [StateWatchEvent::Changed] batches.
+    /// Paths may repeat, be unchanged, or no longer exist; inspect their current state.
+    /// These notifications are not a durable journal.
     ///
-    /// This callback is implemented using [ReadDirectoryChangesW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw)
-    /// so it is not provided by the `Cloud Filter APIs`.
-    ///
-    /// Use this to detect local writes and newly created files as well as pin/unpin changes.
-    /// Paths may repeat or no longer exist; inspect their current state. Queue slow work
-    /// rather than blocking the directory watcher. Notifications are not a durable journal.
-    ///
-    /// See also [Cloud Files API Frequently Asked Questions](https://www.userfilesystem.com/programming/faq/).
+    /// Runs on the watcher thread, so queue slow work elsewhere. [StateWatchEvent::Stopped]
+    /// terminates the watcher; normal disconnect emits no error.
     fn state_changed(&self, _event: StateWatchEvent) -> impl Future<Output = ()> {
         async {}
     }

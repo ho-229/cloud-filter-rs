@@ -107,14 +107,14 @@ impl std::fmt::Debug for PlaceholderInfo {
     }
 }
 
-/// The type of data to read from a placeholder.
+/// The range classification to query with [`Placeholder::ranges`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ReadType {
-    /// Any data that is saved to the disk.
+    /// All locally resident data ranges.
     Any,
-    /// Data that has been synced to the cloud.
+    /// Resident ranges Windows considers in sync with the cloud.
     Validated,
-    /// Data that has not synced to the cloud.
+    /// Resident ranges changed or appended locally and not yet marked in sync.
     Modified,
 }
 
@@ -148,7 +148,8 @@ impl PlaceholderState {
         (self.0 & CloudFilters::CF_PLACEHOLDER_STATE_IN_SYNC).0 != 0
     }
 
-    /// Content is not yet ready for use, possibly because validation is pending.
+    /// File content is not ready for use, or directory population is incomplete.
+    /// A file can have all bytes on disk and still be partial while validation is pending.
     pub fn partial(&self) -> bool {
         (self.0 & CloudFilters::CF_PLACEHOLDER_STATE_PARTIAL).0 != 0
     }
@@ -174,7 +175,7 @@ impl std::fmt::Debug for PlaceholderState {
 impl Placeholder {
     /// Gets various characteristics of the placeholder.
     ///
-    /// Returns [None] if the handle not points to a placeholder.
+    /// Returns [None] if the handle does not refer to a placeholder.
     ///
     /// If the placeholder blob size is known, use [fixed_size_info](Self::fixed_size_info) instead.
     pub fn info(&self) -> core::Result<Option<PlaceholderInfo>> {
@@ -207,9 +208,10 @@ impl Placeholder {
 
     /// Gets various characteristics of the placeholder.
     ///
-    /// If the `blob_size` not matches the actual size of the blob,
-    /// the call will returns `HRESULT_FROM_WIN32(ERROR_MORE_DATA)`.
-    /// Returns [None] if the handle not points to a placeholder.
+    /// Reserves `blob_size` bytes beyond the native header; it need not match the
+    /// identity length exactly. An insufficient buffer returns `ERROR_MORE_DATA`;
+    /// a requested capacity above 4 KiB returns `E_INVALIDARG`.
+    /// Returns [None] if the handle does not refer to a placeholder.
     pub fn fixed_size_info(&self, blob_size: usize) -> core::Result<Option<PlaceholderInfo>> {
         if blob_size > CloudFilters::CF_PLACEHOLDER_MAX_FILE_IDENTITY_LENGTH as usize {
             return Err(windows::Win32::Foundation::E_INVALIDARG.into());

@@ -27,7 +27,7 @@ impl Session {
     /// including hydration caused by antivirus scanning that process's file activity.
     /// It does not block other applications from hydrating files.
     ///
-    /// A call to the [Placeholder::hydrate][crate::placeholder::Placeholder::hydrate] trait will not be blocked by this flag.
+    /// Explicit [Placeholder::hydrate][crate::placeholder::Placeholder::hydrate] calls remain allowed.
     pub fn block_implicit_hydration(mut self) -> Self {
         self.0 |= CloudFilters::CF_CONNECT_FLAG_BLOCK_SELF_IMPLICIT_HYDRATION;
         self
@@ -59,8 +59,8 @@ impl Session {
                 callbacks.as_ptr(),
                 // The boxed Weak slot stays at a stable address until disconnect completes.
                 Some((&*context as *const Weak<F>).cast()),
-                // This is enabled by default to remove the Option requirement around various fields of the
-                // [Request][crate::Request] struct
+                // Request full paths and process details when Windows has them;
+                // cancellation callbacks can still omit ProcessInfo.
                 self.0
                     | CloudFilters::CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH
                     | CloudFilters::CF_CONNECT_FLAG_REQUIRE_PROCESS_INFO,
@@ -82,6 +82,8 @@ impl Session {
     }
 
     /// Initiates a connection to the sync root with the given [Filter].
+    /// `block_on` must drive each supplied future to completion before returning.
+    /// It runs on the native callback thread, or the watcher thread for state changes.
     pub fn connect_async<P, F, B>(
         self,
         path: P,

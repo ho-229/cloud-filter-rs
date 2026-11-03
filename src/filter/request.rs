@@ -51,7 +51,7 @@ impl Request {
 
     /// The GUID path of the current volume.
     ///
-    /// The returned value comes in the form `\?\Volume{GUID}`.
+    /// The returned value comes in the form `\\?\Volume{GUID}`.
     pub fn volume_guid_path(&self) -> OsString {
         self.volume_guid.clone()
     }
@@ -111,20 +111,13 @@ impl Request {
         self.path.clone()
     }
 
-    /// A numeric scale ranging from
-    /// 0-[15](https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/Storage/CloudFilters/constant.CF_MAX_PRIORITY_HINT.html)
-    /// to describe the priority of the file operation.
+    /// The platform's relative fetch priority, from 0 (lowest) to 15 (highest).
     ///
-    /// [Currently, this value does not
-    /// change.](https://docs.microsoft.com/en-us/answers/questions/798674/priority-in-cf-callback-info.html)
+    /// This is a scheduling hint, not a fixed priority class. Windows may vary it
+    /// with conditions, and the provider may choose how to use it.
     pub fn priority_hint(&self) -> u8 {
         self.priority_hint
     }
-
-    // https://docs.microsoft.com/en-us/answers/questions/749979/what-is-a-requestkey-cfapi.html
-    // pub fn request_key(&self) -> i64 {
-    //     self.0.RequestKey
-    // }
 
     /// The byte slice assigned to the current placeholder file/directory.
     pub fn file_blob(&self) -> &[u8] {
@@ -223,14 +216,14 @@ impl Process {
 
     /// The absolute path to the main executable file of the process in the format of an NT path.
     ///
-    /// This function returns [None][std::option::Option::None] when the operating system failed to
+    /// This function returns [None] when the operating system failed to
     /// retrieve the path.
     pub fn path(&self) -> Option<PathBuf> {
         self.path.clone()
     }
 }
 
-/// The NUL-terminated wide string at `ptr`, or [None][std::option::Option::None] if it is null.
+/// The NUL-terminated wide string at `ptr`, or [None] if it is null.
 pub(crate) unsafe fn wide_string(ptr: *const u16) -> Option<OsString> {
     (!ptr.is_null()).then(|| unsafe { U16CStr::from_ptr_str(ptr) }.to_os_string())
 }

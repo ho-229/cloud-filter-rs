@@ -94,7 +94,7 @@ fn run(files: MirrorFiles, receiver: Receiver<Work>) {
         if Instant::now() < next_pass {
             continue;
         }
-        // Preserve callback order and finish remote name changes before uploading
+        // Preserve queue order and finish remote name changes before uploading
         // into those paths. A failed command stays at the front for retry.
         while let Some(change) = changes.front() {
             match files.apply_change(change) {

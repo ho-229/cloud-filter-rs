@@ -1,68 +1,61 @@
-# Registration lifecycle and callback observations
+# CFAPI behavior notes
 
-Registration persists across provider restarts; a connection installs the running provider's callbacks. Normal startup/shutdown should use connect/disconnect. Use registration updates for actual policy changes, and unregister only when removing a sync relationship. The native unregister operation walks the tree, reverts fully hydrated files / fully populated directories, deletes other placeholders, and can skip entries it cannot process. See [CfUnregisterSyncRoot](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfunregistersyncroot).
+These observations come from Windows 10 IoT Enterprise LTSC 2021, build **19044.7807**,
+on NTFS. They explain provider design constraints and library workarounds; other Windows
+builds may behave differently. Relevant probes are in [lifecycle.rs](lifecycle.rs) and
+[tickets.rs](tickets.rs).
 
-The probes in [lifecycle.rs](lifecycle.rs) were run on Windows 10 IoT Enterprise LTSC 2021, build **19044.7807**, on NTFS (2026-10-28). These are observations from that build, not additional Windows API guarantees:
+Registration persists across provider restarts. Normal startup and shutdown should use
+connect/disconnect. Updating a registration preserved child identities and data, but reset
+the root to partially populated on this host. Re-register only when settings change.
 
-* Registering a nonempty directory succeeds. Existing ordinary children remain ordinary; they do not acquire identity or sync state. An existing ordinary subdirectory produces no population callback until converted with on-demand population enabled.
-* Disconnect/reconnect preserves placeholders. Updating the existing registration preserves child identity and data, but resets the root to partially populated on this host. Avoid re-registering unchanged settings on each startup.
-* Unregister while connected returns `0x8007017C`. After disconnect, unregister deletes both an untouched 8 KiB placeholder and one with only its first 4 KiB hydrated. A fully hydrated file survives as an ordinary file with its contents intact.
-* A placeholder held with a read handle opened at the reparse point and denying sharing survives unregister. Registering again therefore produces a **mixed tree**: ordinary survivors and old placeholders with retained identities. Success is not proof that cleanup removed every placeholder.
-* Recreating a surviving ordinary file with `PlaceholderCreateInfo` fails on the existing name; it is not automatic reconciliation. Existing ordinary files need an explicit upload/compare/conflict decision before conversion and marking in sync. Existing directories need conversion if their remote children should be populated on demand. Never blindly mark the surviving tree in sync or overwrite it from a remote listing.
+[Unregister](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfunregistersyncroot)
+changes the local tree: fully hydrated files and fully populated directories become ordinary
+entries; other placeholders are deleted. It can skip entries it cannot process. A locked
+placeholder survived successful unregister with its identity intact, while a partially
+hydrated file was deleted. Registering again therefore left a mixed tree of ordinary files
+and old placeholders. Unregister belongs to removing a sync relationship, after disconnecting.
 
-This explains why adopting a nonempty root requires an inventory, but repeatedly enumerating it is not sufficient. Keep a persistent mapping of local file IDs / remote identities and versions. Merge local and remote inventories, preserve unknown local data, handle skipped old placeholders explicitly, then enable on-demand population on the directories that need it. A reconnect needs reconciliation of offline changes, not reconstruction of every placeholder.
+Registering a nonempty directory leaves ordinary children unchanged. They gain neither
+identity nor sync state, and ordinary subdirectories do not request remote children until
+converted with on-demand population enabled. Adopting such a root requires comparing local
+and remote contents and resolving conflicts before conversion. Recreating existing names
+with `PlaceholderCreateInfo` fails; blindly marking survivors in sync can hide local changes.
 
-One separate diagnostic: on this host, roots under `%TEMP%` registered natively, but WinRT `GetSyncRootInformationForId` returned `ERROR_NOT_FOUND` with an inaccessible-directory message. Roots under the project's `target` directory did not exhibit this. `is_registered()` currently maps that WinRT error to `false`; inspect the original lookup error and native root state before treating it as proof that registration is absent. The exact cause of the path-dependent WinRT result remains unverified.
+Approval callbacks and completion notifications do not form a durable transaction log.
+Setting and then clearing delete disposition produced `deleted` followed by an undelete
+request, yet the file survived and `closed.deleted()` was false. A rename collision introduced
+during approval let ACK succeed while the local rename failed and no `renamed` arrived.
+Remote mutations therefore need to account for the final local outcome, including undo.
 
-The callback probe uses a separate client process and exercises all 13 native callbacks:
+Provider-issued enumeration, dehydration, rename and delete bypassed their corresponding
+callbacks, while external operations triggered them. Explicit provider hydration still
+triggered fetch and validation. Test user actions from another process. `opened`/`closed`
+covered file data/delete handles, but did not cover directories or attribute-only opens;
+they cannot settle every kind of namespace change.
 
-| Rust callback | Trigger / prerequisite |
-| --- | --- |
-| `fetch_data` | Read missing ranges or explicitly hydrate; cached data needs no fetch. |
-| `validate_data` | `ValidationRequired`: acknowledge downloaded data before completing I/O. |
-| `fetch_placeholders` | Query/open beneath a partially populated directory; submit batches, then return `Ok(())` to complete population. |
-| `cancel_fetch_data`, `cancel_fetch_placeholders` | Pending work becomes unnecessary; both were observed on the native timeout. |
-| `opened`, `closed` | Placeholder file data/delete handles; not directory or attribute-only opens. |
-| `dehydrate`, `dehydrated` | Dehydration approval and successful completion. |
-| `delete`, `deleted` | Deletion approval and successful completion; inspect undelete/directory flags. |
-| `rename`, `renamed` | Rename/move approval and successful completion; inspect source/target scope. |
+Completed directory population suppressed later fetches until
+`UpdateOptions::has_children()` enabled on-demand population again. Discovering subsequent
+remote changes remains the provider's responsibility.
 
-These roles are specified in [CF_CALLBACK_TYPE](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ne-cfapi-cf_callback_type). In the probe, provider-issued enumeration/dehydration/rename/delete bypassed their respective callbacks, while external operations triggered them. Explicit provider hydration still triggered fetch and validation. Completed directory population suppressed repeated fetches until `UpdateOptions::has_children()` enabled on-demand population again. It is not a remote change subscription.
+Cancellation can arrive late and without process information. Killing the reader did not
+reliably produce an immediate callback; both fetch cancellation callbacks were observed on
+timeout, after about 60 seconds.
 
-The population probe submits multiple batches through one ticket and verifies that intermediate
-and empty submissions leave the directory partial. Only a successful callback return sends the
-final `DISABLE_ON_DEMAND_POPULATION`; returning an error leaves population incomplete. Returning
-success without submissions completes an empty directory. The async probe also enumerates and
-hydrates children from separate batches, after the provider future completes.
+Hydration restart worked with FULL policy while preserving file size. A restart that changed
+size stalled inside `CfExecute`; the library consequently rejects size changes with
+`ERROR_NOT_SUPPORTED`. This is a workaround for the observed stall, not a documented CFAPI
+restriction. With PARTIAL policy, restart returned `ERROR_CLOUD_FILE_INVALID_REQUEST` rather
+than the `STATUS_CLOUD_FILE_NOT_SUPPORTED` specified in the
+[native documentation](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ns-cfapi-cf_operation_parameters).
+A rejected restart left the original read pending: the provider still had to service or fail it.
 
-The acknowledgment regression sets and clears delete disposition before close: `deleted` and `undelete` arrive, but the file survives and `closed.deleted()` is false. It also introduces a rename collision during approval: ACK succeeds, the local rename fails, and no `renamed` notification arrives.
+WinRT registration lookup and native root state can disagree. Roots under `%TEMP%` registered
+natively, but WinRT lookup returned `ERROR_NOT_FOUND` with an inaccessible-directory message;
+roots under the project's `target` directory did not exhibit this. The cause remains
+unverified. Since `SyncRootId::is_registered()` maps that error to `false`, inspect the lookup
+error and native state before deciding that registration is absent.
 
-Both cancellation callbacks arrived after about 60 seconds with `timeout=true` and no process information; use `Request::try_process()`. Killing the reader did not reliably produce an immediate cancellation in an earlier probe. The slow timeout test is opt-in. Windows defines the [timeout and user-cancel flags](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ne-cfapi-cf_callback_cancel_flags); callback counts/order should not be treated as a transaction log. Storage Sense, Recycle Bin, cross-root moves and Windows 11 have not been tested here.
-
-The hydration restart probes in [tickets.rs](tickets.rs) add these observations on the same Windows 10 build:
-
-* FULL hydration can restart from either fetch or validation. Defaults preserve metadata/identity; updating timestamps, identity and InSync while preserving size succeeds. The pending read returns replacement data, including an unaligned EOF, without exposing the bytes rejected by validation.
-* PARTIAL restart returned `ERROR_CLOUD_FILE_INVALID_REQUEST`, whereas the [native documentation](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ns-cfapi-cf_operation_parameters) specifies `STATUS_CLOUD_FILE_NOT_SUPPORTED`. A rejected restart did not itself complete the pending read; the provider must still fail or service it.
-* Restarting with a size change from 8192 to 4097 stalled inside `CfExecute`. Moving the operation off the callback thread, preserving the callback RequestKey, allowing read/write/delete sharing, preserving attributes, and blocking provider self-hydration did not resolve it. Same-size metadata updates succeeded. The wrapper therefore rejects size changes with `ERROR_NOT_SUPPORTED` before calling Windows; this is a library restriction based on this host, not a documented CFAPI restriction. The BT verifies rejection leaves the ticket usable. This does not establish the behavior of other Windows builds.
-
-The native root-info probe registers directly through CFAPI, without a WinRT catalogue entry,
-and checks empty/nonempty identities, policy conversion, snapshot ownership, and provider
-status updates. On this host, the first handle-based status query after connecting and updating
-could still report `Disconnected`; `CfQuerySyncProviderStatus` returned the new value immediately,
-and subsequent handle queries caught up. The test waits for that snapshot rather than requiring
-instant propagation. Membership queries also verify that reading root info through an offline
-child does not hydrate it and returns no registration after unregistering.
-
-The validation callback probe acknowledges transferred data in two parts using inclusive bounds
-and an unbounded end (`CF_EOF`), including an unaligned final file size. It first rejects an
-overflowing bound, then uses the same ticket successfully. Bound arithmetic remains covered by
-the unit tests in `utility.rs`.
-
-The bridge registers every callback, so a default `NotSupported` handler rejects the operation instead of omitting the callback. An approval ticket permits the local operation; it does not make a remote mutation atomic with that operation. `state_changed` is a separate directory watcher for pin/attribute changes. Lost notifications trigger a batched root scan; disconnected periods still need provider-side reconciliation.
-
-```powershell
-cargo test --test behavior --all-features -- registration_lifecycle --nocapture --test-threads=1
-cargo test --test behavior --all-features -- callback_triggers --nocapture --test-threads=1
-# About one minute; intentionally excluded from the default test run:
-cargo test --test behavior --all-features -- callback_cancellation_timeout --ignored --nocapture --test-threads=1
-```
+Handle-based root-info snapshots can also lag provider status updates. Just after connecting,
+a snapshot still reported `Disconnected` while `CfQuerySyncProviderStatus` returned the newly
+set status; later handle queries caught up.

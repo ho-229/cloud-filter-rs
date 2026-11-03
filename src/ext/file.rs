@@ -27,7 +27,7 @@ use crate::{
     usn, utility,
 };
 
-/// An API extension to [File][std::fs::File].
+/// Cloud file operations on [File] handles.
 pub trait FileExt: AsRawHandle + Sealed {
     /// Reads the latest journaled USN through a file or directory handle.
     /// This waits for completion, including on handles opened for overlapped I/O.
@@ -40,13 +40,14 @@ pub trait FileExt: AsRawHandle + Sealed {
         usn::read(self.as_raw_handle())
     }
 
-    /// Dehydrates a placeholder file.
+    /// Releases local data in the requested range of an in-sync, unpinned file.
+    /// The caller must hold exclusive file access. An unbounded end means through EOF.
     fn dehydrate<T: RangeBounds<u64>>(&self, range: T) -> core::Result<()> {
         dehydrate(self.as_raw_handle(), range, false)
     }
 
-    /// Dehydrates a placeholder file as a system process running in the background. Otherwise, it
-    /// is called on behalf of a logged-in user.
+    /// Dehydrates with the background-operation flag, rather than on behalf of a user.
+    /// Has the same exclusive-access and file-state requirements as [`Self::dehydrate`].
     fn background_dehydrate<T: RangeBounds<u64>>(&self, range: T) -> core::Result<()> {
         dehydrate(self.as_raw_handle(), range, true)
     }
