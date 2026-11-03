@@ -244,7 +244,6 @@ impl Fallible for CreatePlaceholders<'_> {
                     Flags: CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE,
                     CompletionStatus: error_kind.into(),
                     PlaceholderTotalCount: 0,
-                    // TODO: DOES THIS HAVE TO BE A VALID ARRAY?
                     PlaceholderArray: ptr::null_mut(),
                     PlaceholderCount: 0,
                     EntriesProcessed: 0,
