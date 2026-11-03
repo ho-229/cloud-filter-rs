@@ -65,12 +65,8 @@ impl Default for OpenOptions {
 }
 
 impl Placeholder {
-    /// Create a placeholder from a raw handle.
-    ///
-    /// # Safety
-    ///
-    /// The passed handle must be a valid protected handle or win32 handle.
-    pub unsafe fn from_raw_handle(handle: OwnedPlaceholderHandle) -> Self {
+    /// Wraps an owned handle for placeholder operations.
+    pub fn from_raw_handle(handle: OwnedPlaceholderHandle) -> Self {
         Self { handle }
     }
 
