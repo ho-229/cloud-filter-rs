@@ -1,4 +1,7 @@
-use std::ops::{Range, RangeBounds};
+use std::{
+    ops::{Range, RangeBounds},
+    sync::{Arc, Mutex},
+};
 
 use windows::{
     core,
@@ -223,28 +226,46 @@ impl sealed::Sealed for ValidateData {}
 pub struct FetchPlaceholders {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    count: Arc<Mutex<u64>>,
 }
 
 impl FetchPlaceholders {
     /// Create a new [FetchPlaceholders].
-    pub(crate) fn new(connection_key: RawConnectionKey, transfer_key: RawTransferKey) -> Self {
+    pub(crate) fn new(
+        connection_key: RawConnectionKey,
+        transfer_key: RawTransferKey,
+        count: Arc<Mutex<u64>>,
+    ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            count,
         }
     }
 
-    /// Creates the remaining placeholders in this directory and completes its population.
+    /// Creates one batch of placeholders without completing directory population.
     ///
     /// Attempts every entry and returns the first error, if any. Each entry's
     /// [PlaceholderCreateInfo::result] contains its creation result and USN.
-    /// An empty slice completes an empty directory; a failed batch leaves it incomplete.
-    pub fn pass_with_placeholder(
+    /// An empty slice is a no-op. Call this repeatedly for paginated listings and
+    /// propagate errors from the callback. The library completes population when
+    /// `fetch_placeholders` returns `Ok(())`, even if no batches were submitted.
+    /// Finish all submissions before returning; do not retain the ticket for later work.
+    pub fn pass_with_placeholders(
         &self,
         placeholders: &mut [PlaceholderCreateInfo],
     ) -> core::Result<()> {
+        // Serialize batches so native totals stay ahead of every submitted entry,
+        // including when the same ticket is shared between threads.
+        let mut count = self.count.lock().unwrap();
+        let total = count
+            .checked_add(placeholders.len() as u64)
+            .and_then(|count| count.checked_add(1))
+            .filter(|&total| total <= i64::MAX as u64)
+            .ok_or_else(|| core::Error::from(windows::Win32::Foundation::E_INVALIDARG))?;
+        *count = total - 1;
         command::CreatePlaceholders {
-            total: placeholders.len() as _,
+            total,
             placeholders,
         }
         .execute(self.connection_key, self.transfer_key)

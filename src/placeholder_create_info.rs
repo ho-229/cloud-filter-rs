@@ -121,7 +121,7 @@ impl PlaceholderCreateInfo {
     /// If you need to create placeholders from the
     /// [SyncFilter::fetch_placeholders][crate::filter::SyncFilter::fetch_placeholders] callback,
     /// do not use this method. Instead, use
-    /// [FetchPlaceholders::pass_with_placeholder][crate::filter::ticket::FetchPlaceholders::pass_with_placeholder].
+    /// [FetchPlaceholders::pass_with_placeholders][crate::filter::ticket::FetchPlaceholders::pass_with_placeholders].
     pub fn create<P: AsRef<Path>>(mut self, parent: P) -> core::Result<Usn> {
         unsafe {
             CfCreatePlaceholders(

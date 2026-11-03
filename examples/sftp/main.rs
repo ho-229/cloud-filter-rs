@@ -412,7 +412,7 @@ impl SyncFilter for Filter {
             );
         }
         ticket
-            .pass_with_placeholder(&mut placeholders)
+            .pass_with_placeholders(&mut placeholders)
             .map_err(cloud_error)?;
         for placeholder in placeholders {
             placeholder.result().map_err(cloud_error)?;

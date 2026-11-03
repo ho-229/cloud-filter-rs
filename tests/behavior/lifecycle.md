@@ -20,7 +20,7 @@ The callback probe uses a separate client process and exercises all 13 native ca
 | --- | --- |
 | `fetch_data` | Read missing ranges or explicitly hydrate; cached data needs no fetch. |
 | `validate_data` | `ValidationRequired`: acknowledge downloaded data before completing I/O. |
-| `fetch_placeholders` | Query/open beneath a partially populated directory; not ordinary or completed directories. |
+| `fetch_placeholders` | Query/open beneath a partially populated directory; submit batches, then return `Ok(())` to complete population. |
 | `cancel_fetch_data`, `cancel_fetch_placeholders` | Pending work becomes unnecessary; both were observed on the native timeout. |
 | `opened`, `closed` | Placeholder file data/delete handles; not directory or attribute-only opens. |
 | `dehydrate`, `dehydrated` | Dehydration approval and successful completion. |
@@ -28,6 +28,12 @@ The callback probe uses a separate client process and exercises all 13 native ca
 | `rename`, `renamed` | Rename/move approval and successful completion; inspect source/target scope. |
 
 These roles are specified in [CF_CALLBACK_TYPE](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/ne-cfapi-cf_callback_type). In the probe, provider-issued enumeration/dehydration/rename/delete bypassed their respective callbacks, while external operations triggered them. Explicit provider hydration still triggered fetch and validation. Completed directory population suppressed repeated fetches until `UpdateOptions::has_children()` enabled on-demand population again. It is not a remote change subscription.
+
+The population probe submits multiple batches through one ticket and verifies that intermediate
+and empty submissions leave the directory partial. Only a successful callback return sends the
+final `DISABLE_ON_DEMAND_POPULATION`; returning an error leaves population incomplete. Returning
+success without submissions completes an empty directory. The async probe also enumerates and
+hydrates children from separate batches, after the provider future completes.
 
 The acknowledgment regression sets and clears delete disposition before close: `deleted` and `undelete` arrive, but the file survives and `closed.deleted()` is false. It also introduces a rename collision during approval: ACK succeeds, the local rename fails, and no `renamed` notification arrives.
 

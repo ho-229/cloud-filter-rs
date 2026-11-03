@@ -2,7 +2,7 @@
 
 use std::{
     panic::{catch_unwind, AssertUnwindSafe},
-    sync::{Arc, Weak},
+    sync::{Arc, Mutex, Weak},
 };
 
 use windows::Win32::Storage::CloudFilters::{
@@ -156,19 +156,28 @@ unsafe fn fetch_placeholders<T: SyncFilter + 'static>(
         let request = Request::new(*info);
         let connection_key = request.connection_key();
         let transfer_key = request.transfer_key();
-        let ticket = ticket::FetchPlaceholders::new(connection_key, transfer_key);
+        let count = Arc::new(Mutex::new(0));
+        let ticket = ticket::FetchPlaceholders::new(connection_key, transfer_key, count.clone());
 
-        let Err(e) = filter.fetch_placeholders(
+        let result = filter.fetch_placeholders(
             request,
             ticket,
             info::FetchPlaceholders::new((*params).Anonymous.FetchPlaceholders),
-        ) else {
-            return;
-        };
+        );
 
-        // Fails if the request was already cancelled or timed out. Nothing more can be done, and
-        // a panic here would abort the process: these callbacks are `extern "system"`.
-        let _ = command::CreatePlaceholders::fail(connection_key, transfer_key, (), e);
+        // Returning success completes even an empty directory. Never complete from
+        // ticket Drop: it also runs when the callback fails or panics.
+        // Native response errors can mean the request was already cancelled or timed out.
+        let _ = match result {
+            Ok(()) => command::CreatePlaceholders::complete(
+                connection_key,
+                transfer_key,
+                *count.lock().unwrap(),
+            ),
+            Err(error) => {
+                command::CreatePlaceholders::fail(connection_key, transfer_key, (), error)
+            }
+        };
     }
 }
 

@@ -228,11 +228,26 @@ pub fn placeholder_batches_preserve_identities() -> Result<(), Failed> {
 
         fn fetch_placeholders(
             &self,
-            _: Request,
+            request: Request,
             ticket: ticket::FetchPlaceholders,
             _: info::FetchPlaceholders,
         ) -> CResult<()> {
-            let result = ticket.pass_with_placeholder(&mut placeholders(&self.identities));
+            let mut batch = placeholders(&self.identities);
+            let mut result = Ok(());
+            for page in batch.chunks_mut(3) {
+                // Empty submissions and intermediate pages must leave population
+                // pending. Only the callback's successful return finishes it.
+                let empty = ticket.pass_with_placeholders(&mut []);
+                let submitted = ticket.pass_with_placeholders(page);
+                assert!(open(&request.path())
+                    .unwrap()
+                    .state()
+                    .unwrap()
+                    .unwrap()
+                    .partial());
+                // Keep submitting later pages even if an earlier entry failed.
+                result = result.and(empty).and(submitted);
+            }
             // Enumeration can return entries despite a population error, so
             // capture the provider's result independently of the client exit code.
             self.results.lock().unwrap().push(result.clone());
@@ -247,7 +262,7 @@ pub fn placeholder_batches_preserve_identities() -> Result<(), Failed> {
         (true, Some(3), false),
         // A failure in the last entry must not complete population either.
         (true, Some(identities.len() - 1), false),
-        // Direct creation is a no-op; a callback must still finish an empty directory.
+        // With no submissions, a successful callback must still finish an empty directory.
         (false, None, true),
         (true, None, true),
     ] {

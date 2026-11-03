@@ -656,7 +656,7 @@ fn local_directories_become_synced_placeholders() -> anyhow::Result<()> {
             _: info::FetchPlaceholders,
         ) -> CResult<()> {
             ticket
-                .pass_with_placeholder(&mut [])
+                .pass_with_placeholders(&mut [])
                 .map_err(|_| CloudErrorKind::Unsuccessful)
         }
     }

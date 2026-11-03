@@ -133,9 +133,17 @@ impl SyncFilter for Probe {
     ) -> CResult<()> {
         self.record("fetch_placeholders", &request, ());
         if request.path().file_name().unwrap() == "pending-dir" {
-            return Ok(());
+            // Successful return completes population, so keep the handler
+            // pending until Windows delivers its cancellation notification.
+            self.wait_for(
+                "cancel_fetch_placeholders",
+                "pending-dir",
+                Duration::from_secs(80),
+            )
+            .map_err(|_| CloudErrorKind::Unsuccessful)?;
+            return Err(CloudErrorKind::RequestTimeout);
         }
-        ticket.pass_with_placeholder(&mut []).map_err(api_error)
+        ticket.pass_with_placeholders(&mut []).map_err(api_error)
     }
     fn cancel_fetch_data(&self, request: Request, info: info::CancelFetchData) {
         self.record("cancel_fetch_data", &request, info);

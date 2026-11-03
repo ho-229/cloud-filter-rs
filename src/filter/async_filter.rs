@@ -17,7 +17,8 @@ use super::{info, ticket, StateWatchEvent, SyncFilter};
 /// The bridge registers every native callback, including methods with default
 /// implementations. Returning `NotSupported` rejects a request; it does not opt out
 /// of registering that callback. Successful request handlers must complete the
-/// operation through their ticket; returning `Ok(())` alone does not acknowledge it.
+/// operation through their ticket, except `fetch_placeholders`, whose successful
+/// return completes directory population after all submitted batches.
 ///
 /// Provider-originated operations can bypass notifications. Test user actions from
 /// a separate process, and use `Request::try_process` because cancellation callbacks
@@ -66,6 +67,12 @@ pub trait Filter: Send + Sync {
     /// Ordinary directories and fully populated directories do not need this callback.
     /// `AlwaysFull` population disables it entirely. Completion is not a remote refresh
     /// subscription: the provider must discover later remote changes itself.
+    ///
+    /// Submit any number of batches through the ticket and await all work before
+    /// returning. `Ok(())` completes population and disables further on-demand
+    /// enumeration; returning `Err` fails the request and leaves it incomplete.
+    /// Success without batches also completes population. Do not retain the ticket
+    /// after completion.
     fn fetch_placeholders(
         &self,
         _request: Request,

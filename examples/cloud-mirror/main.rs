@@ -342,7 +342,7 @@ impl SyncFilter for CloudMirror {
             );
         }
         ticket
-            .pass_with_placeholder(&mut placeholders)
+            .pass_with_placeholders(&mut placeholders)
             .map_err(cloud_api_error)?;
         for placeholder in placeholders {
             placeholder.result().map_err(cloud_api_error)?;

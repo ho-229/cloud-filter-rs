@@ -35,12 +35,15 @@ impl Filter for MemFilter {
         ticket: ticket::FetchPlaceholders,
         _: info::FetchPlaceholders,
     ) -> CResult<()> {
-        ticket
-            .pass_with_placeholder(&mut [PlaceholderCreateInfo::new("file.txt")
-                .metadata(Metadata::file().size(CONTENT.len() as u64))
-                .blob(CONTENT.to_vec())
-                .mark_in_sync()])
-            .map_err(|_| CloudErrorKind::Unsuccessful)
+        for name in ["first.txt", "second.txt"] {
+            ticket
+                .pass_with_placeholders(&mut [PlaceholderCreateInfo::new(name)
+                    .metadata(Metadata::file().size(CONTENT.len() as u64))
+                    .blob(CONTENT.to_vec())
+                    .mark_in_sync()])
+                .map_err(|_| CloudErrorKind::Unsuccessful)?;
+        }
+        Ok(())
     }
 }
 
@@ -56,9 +59,10 @@ pub fn test() -> Result<(), Failed> {
         r#"
 $ErrorActionPreference = 'Stop'
 $entries = @(Get-ChildItem -LiteralPath $env:CF_PROBE_ROOT)
-if ($entries.Count -ne 1 -or $entries[0].Name -ne 'file.txt') { throw 'Unexpected population' }
-$content = [IO.File]::ReadAllText((Join-Path $env:CF_PROBE_ROOT 'file.txt'))
-if ($content -cne 'async contents') { throw 'Unexpected hydrated contents' }
+if (($entries.Name | Sort-Object) -join ',' -cne 'first.txt,second.txt') { throw 'Unexpected population' }
+foreach ($entry in $entries) {
+    if ([IO.File]::ReadAllText($entry.FullName) -cne 'async contents') { throw 'Unexpected hydrated contents' }
+}
 "#,
     )?;
     Ok(())

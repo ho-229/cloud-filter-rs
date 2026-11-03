@@ -171,8 +171,25 @@ impl Command for RestartHydration<'_> {
 pub struct CreatePlaceholders<'a> {
     /// The placeholders to create.
     pub placeholders: &'a mut [PlaceholderCreateInfo],
-    /// The total amount of placeholders that are a child of the current directory.
+    /// A total greater than all entries submitted so far, keeping population pending.
     pub total: u64,
+}
+
+impl CreatePlaceholders<'_> {
+    pub fn complete(
+        connection_key: RawConnectionKey,
+        transfer_key: RawTransferKey,
+        total: u64,
+    ) -> core::Result<()> {
+        let mut parameters = CreatePlaceholders {
+            placeholders: &mut [],
+            total,
+        }
+        .build()?;
+        parameters.TransferPlaceholders.Flags =
+            CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION;
+        execute::<Self>(parameters, connection_key, transfer_key)
+    }
 }
 
 impl Command for CreatePlaceholders<'_> {
@@ -189,34 +206,17 @@ impl Command for CreatePlaceholders<'_> {
         transfer_key: RawTransferKey,
     ) -> core::Result<Self::Result> {
         let mut parameters = self.build()?;
-        let total = utility::checked_offset(self.total)?;
-        // Reserve completion for the final empty transfer; reaching the total
-        // earlier can finish the request before that transfer is submitted.
-        parameters.TransferPlaceholders.PlaceholderTotalCount =
-            total.max(self.placeholders.len() as i64 + 1);
-        parameters.TransferPlaceholders.Flags =
-            CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE;
         parameters.TransferPlaceholders.PlaceholderCount = 1;
         create_individually(self.placeholders, |entry| {
             parameters.TransferPlaceholders.PlaceholderArray = entry;
             execute::<Self>(parameters, connection_key, transfer_key)
-        })?;
-
-        // Check every entry before completing population: even the final
-        // CfExecute can succeed with a failing per-entry Result.
-        parameters.TransferPlaceholders.Flags =
-            CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION;
-        parameters.TransferPlaceholders.PlaceholderArray = ptr::null_mut();
-        parameters.TransferPlaceholders.PlaceholderCount = 0;
-        parameters.TransferPlaceholders.PlaceholderTotalCount = total;
-        execute::<Self>(parameters, connection_key, transfer_key)
+        })
     }
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         Ok(CF_OPERATION_PARAMETERS_0 {
             TransferPlaceholders: CF_OPERATION_PARAMETERS_0_7 {
-                // execute() completes population separately after checking every result.
-                Flags: CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
+                Flags: CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
                 PlaceholderTotalCount: utility::checked_offset(self.total)?,
                 PlaceholderArray: match self.placeholders.is_empty() {
@@ -224,7 +224,11 @@ impl Command for CreatePlaceholders<'_> {
                     true => ptr::null_mut(),
                     false => self.placeholders.as_mut_ptr().cast(),
                 },
-                PlaceholderCount: self.placeholders.len().try_into().map_err(|_| core::Error::from(Foundation::E_INVALIDARG))?,
+                PlaceholderCount: self
+                    .placeholders
+                    .len()
+                    .try_into()
+                    .map_err(|_| core::Error::from(Foundation::E_INVALIDARG))?,
                 EntriesProcessed: 0,
             },
         })
