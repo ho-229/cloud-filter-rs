@@ -105,8 +105,25 @@ This does not provide a fix schedule for individual CFAPI issues.
 ## Development status
 
 Experimental and under active development; the API is still changing and is not production-ready.
-CFAPI bugs can corrupt placeholder metadata or leave operations stuck. The library includes
-workarounds for reproduced cases; use test data and keep backups while experimenting.
+Use test data and keep backups while experimenting.
+
+### Known Windows issues
+
+These issues were reproduced with standalone Windows SDK programs, independently of this crate.
+
+- **Batch creation can corrupt placeholder metadata** ([report](https://learn.microsoft.com/en-us/answers/questions/6057324/cfapi-cfcreateplaceholders-returns-s-ok-but-create)).
+  A native batch can report success for every entry while subsequent access fails with
+  `ERROR_CLOUD_FILE_METADATA_CORRUPT` (363). Reproduced on Windows 10 build 19044.7807,
+  with an independent reproduction reported on Windows 11 build 26300. Sorting entries by
+  identity length or using equal-length identities does not reliably avoid it. The current
+  implementation submits one placeholder per native call for both `BatchCreate` and callback
+  population. This avoids the observed trigger but does not repair existing corruption.
+- **Explorer deletion can leave empty directory hierarchies** ([report](https://learn.microsoft.com/en-us/answers/questions/6060921/cfapi-shell-ifileoperation-returns-s-ok-but-leaves)).
+  On Windows 10 build 19044.7807, Shift+Delete and `IFileOperation` can leave empty ancestors
+  when deleting populated cloud directories containing offline files under a Shell-registered
+  sync root. The Shell operation reports success without cancellation. In our tests, recursive
+  filesystem deletion (such as PowerShell `Remove-Item -LiteralPath ... -Recurse`) or fully
+  hydrating the files before Shell deletion removed the entire tree.
 
 ## Additional Resources
 
