@@ -4,14 +4,14 @@ use memoffset::offset_of;
 use windows::{
     core,
     Win32::Storage::CloudFilters::{
-        self, CfExecute, CF_CONNECTION_KEY, CF_OPERATION_INFO, CF_OPERATION_PARAMETERS,
+        CfExecute, CF_CONNECTION_KEY, CF_OPERATION_INFO, CF_OPERATION_PARAMETERS,
         CF_OPERATION_PARAMETERS_0, CF_OPERATION_TYPE,
     },
 };
 
 use crate::{
     error::CloudErrorKind,
-    filter::{RawConnectionKey, RawTransferKey},
+    filter::{RawConnectionKey, RawRequestKey, RawTransferKey},
 };
 
 /// Allows a command to fail with a specified error.
@@ -22,6 +22,7 @@ pub trait Fallible: Command {
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result>;
@@ -51,8 +52,9 @@ pub trait Command: Sized {
         &mut self,
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
     ) -> core::Result<Self::Result> {
-        execute::<Self>(self.build()?, connection_key, transfer_key)
+        execute::<Self>(self.build()?, connection_key, transfer_key, request_key)
     }
 }
 
@@ -60,6 +62,7 @@ pub fn execute<C: Command>(
     info: CF_OPERATION_PARAMETERS_0,
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    request_key: RawRequestKey,
 ) -> core::Result<C::Result> {
     let mut parameters = CF_OPERATION_PARAMETERS {
         ParamSize: (mem::size_of::<C::Field>() + offset_of!(CF_OPERATION_PARAMETERS, Anonymous))
@@ -75,8 +78,7 @@ pub fn execute<C: Command>(
                 TransferKey: transfer_key,
                 CorrelationVector: ptr::null(),
                 SyncStatus: ptr::null(),
-                // https://docs.microsoft.com/en-us/answers/questions/749979/what-is-a-requestkey-cfapi.html
-                RequestKey: CloudFilters::CF_REQUEST_KEY_DEFAULT as i64,
+                RequestKey: request_key,
             } as *const _,
             &mut parameters,
         )?;

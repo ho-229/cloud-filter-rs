@@ -19,7 +19,7 @@ use windows::{
 use crate::{
     command::executor::{execute, Command, Fallible},
     error::CloudErrorKind,
-    filter::{RawConnectionKey, RawTransferKey},
+    filter::{RawConnectionKey, RawRequestKey, RawTransferKey},
     metadata::Metadata,
     placeholder_create_info::{create_individually, PlaceholderCreateInfo},
     utility,
@@ -95,6 +95,7 @@ impl Fallible for Write<'_> {
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<()> {
@@ -111,6 +112,7 @@ impl Fallible for Write<'_> {
             },
             connection_key,
             transfer_key,
+            request_key,
         )
     }
 }
@@ -178,6 +180,7 @@ impl CreatePlaceholders<'_> {
     pub fn complete(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         total: u64,
     ) -> core::Result<()> {
         let mut parameters = CreatePlaceholders {
@@ -187,7 +190,7 @@ impl CreatePlaceholders<'_> {
         .build()?;
         parameters.TransferPlaceholders.Flags =
             CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION;
-        execute::<Self>(parameters, connection_key, transfer_key)
+        execute::<Self>(parameters, connection_key, transfer_key, request_key)
     }
 }
 
@@ -203,12 +206,13 @@ impl Command for CreatePlaceholders<'_> {
         &mut self,
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
     ) -> core::Result<Self::Result> {
         let mut parameters = self.build()?;
         parameters.TransferPlaceholders.PlaceholderCount = 1;
         create_individually(self.placeholders, |entry| {
             parameters.TransferPlaceholders.PlaceholderArray = entry;
-            execute::<Self>(parameters, connection_key, transfer_key)
+            execute::<Self>(parameters, connection_key, transfer_key, request_key)
         })
     }
 
@@ -240,6 +244,7 @@ impl Fallible for CreatePlaceholders<'_> {
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         _context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result> {
@@ -256,6 +261,7 @@ impl Fallible for CreatePlaceholders<'_> {
             },
             connection_key,
             transfer_key,
+            request_key,
         )
     }
 }
@@ -294,6 +300,7 @@ impl Fallible for Validate {
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<()> {
@@ -309,6 +316,7 @@ impl Fallible for Validate {
             },
             connection_key,
             transfer_key,
+            request_key,
         )
     }
 }
@@ -349,6 +357,7 @@ impl Fallible for Dehydrate<'_> {
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         _context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result> {
@@ -363,6 +372,7 @@ impl Fallible for Dehydrate<'_> {
             },
             connection_key,
             transfer_key,
+            request_key,
         )
     }
 }
@@ -395,6 +405,7 @@ impl Fallible for Delete {
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         _context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result> {
@@ -407,6 +418,7 @@ impl Fallible for Delete {
             },
             connection_key,
             transfer_key,
+            request_key,
         )
     }
 }
@@ -439,6 +451,7 @@ impl Fallible for Rename {
     fn fail(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         _context: Self::Context,
         error_kind: CloudErrorKind,
     ) -> core::Result<Self::Result> {
@@ -451,6 +464,7 @@ impl Fallible for Rename {
             },
             connection_key,
             transfer_key,
+            request_key,
         )
     }
 }

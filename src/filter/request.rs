@@ -5,6 +5,7 @@ use windows::Win32::Storage::CloudFilters::{CF_CALLBACK_INFO, CF_PROCESS_INFO};
 
 pub type RawConnectionKey = i64;
 pub type RawTransferKey = i64;
+pub type RawRequestKey = i64;
 
 /// A struct containing standard information for the current file operation.
 pub struct Request {
@@ -21,6 +22,7 @@ pub struct Request {
     register_blob: Vec<u8>,
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    request_key: RawRequestKey,
 }
 
 impl Request {
@@ -46,6 +48,7 @@ impl Request {
             register_blob: copy_blob(info.SyncRootIdentity.cast(), info.SyncRootIdentityLength),
             connection_key: info.ConnectionKey.0,
             transfer_key: info.TransferKey,
+            request_key: info.RequestKey,
         }
     }
 
@@ -127,6 +130,11 @@ impl Request {
     /// A raw transfer key used to identify the current file operation.
     pub(crate) fn transfer_key(&self) -> RawTransferKey {
         self.transfer_key
+    }
+
+    /// Identifies this operation within the file's transfer key; return it unchanged.
+    pub(crate) fn request_key(&self) -> RawRequestKey {
+        self.request_key
     }
 }
 
@@ -267,6 +275,7 @@ mod tests {
                     ProcessInfo: &process as *const _ as *mut _,
                     FileIdentity: identity.as_ptr().cast(),
                     FileIdentityLength: identity.len() as u32,
+                    RequestKey: 0x1234_5678_9abc_def0,
                     ..Default::default()
                 })
             };
@@ -277,6 +286,7 @@ mod tests {
         assert_eq!(request.path(), PathBuf::from(r"C:\root\file"));
         assert_eq!(request.file_blob(), &[1, 2, 3]);
         assert!(request.register_blob().is_empty());
+        assert_eq!(request.request_key(), 0x1234_5678_9abc_def0);
         let process = request.process().unwrap();
         drop(request);
         assert_eq!(process.id(), 42);

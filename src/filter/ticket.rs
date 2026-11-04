@@ -11,7 +11,7 @@ use windows::{
 use crate::{
     command::{self, Command, Fallible},
     error::CloudErrorKind,
-    filter::{RawConnectionKey, RawTransferKey},
+    filter::{RawConnectionKey, RawRequestKey, RawTransferKey},
     metadata::Metadata,
     placeholder_create_info::PlaceholderCreateInfo,
     sealed, utility,
@@ -55,6 +55,7 @@ impl<'a> RestartHydrationOptions<'a> {
 pub struct FetchData {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    request_key: RawRequestKey,
     file_size: u64,
     /// The requested range to include in a failed transfer response.
     range: Range<u64>,
@@ -65,12 +66,14 @@ impl FetchData {
     pub(crate) fn new(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         file_size: u64,
         range: Range<u64>,
     ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            request_key,
             file_size,
             range,
         }
@@ -83,6 +86,7 @@ impl FetchData {
         command::Write::fail(
             self.connection_key,
             self.transfer_key,
+            self.request_key,
             self.range.clone(),
             error_kind,
         )
@@ -119,7 +123,7 @@ impl FetchData {
             blob: options.blob,
             mark_in_sync: options.mark_in_sync,
         }
-        .execute(self.connection_key, self.transfer_key)
+        .execute(self.connection_key, self.transfer_key, self.request_key)
     }
 }
 
@@ -134,7 +138,7 @@ impl utility::ReadAt for FetchData {
             buffer: buf,
             position: offset,
         }
-        .execute(self.connection_key, self.transfer_key)
+        .execute(self.connection_key, self.transfer_key, self.request_key)
     }
 }
 
@@ -150,7 +154,7 @@ impl utility::WriteAt for FetchData {
             buffer: buf,
             position: offset,
         }
-        .execute(self.connection_key, self.transfer_key)
+        .execute(self.connection_key, self.transfer_key, self.request_key)
     }
 }
 
@@ -161,6 +165,7 @@ impl sealed::Sealed for FetchData {}
 pub struct ValidateData {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    request_key: RawRequestKey,
     file_size: u64,
 }
 
@@ -169,11 +174,13 @@ impl ValidateData {
     pub(crate) fn new(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         file_size: u64,
     ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            request_key,
             file_size,
         }
     }
@@ -189,7 +196,7 @@ impl ValidateData {
         command::Validate {
             range: (range.start_bound().cloned(), range.end_bound().cloned()),
         }
-        .execute(self.connection_key, self.transfer_key)
+        .execute(self.connection_key, self.transfer_key, self.request_key)
     }
 
     /// Discards invalid data and restarts pending hydration instead of acknowledging it.
@@ -201,7 +208,7 @@ impl ValidateData {
             blob: options.blob,
             mark_in_sync: options.mark_in_sync,
         }
-        .execute(self.connection_key, self.transfer_key)
+        .execute(self.connection_key, self.transfer_key, self.request_key)
     }
 }
 
@@ -217,7 +224,7 @@ impl utility::ReadAt for ValidateData {
             buffer: buf,
             position: offset,
         }
-        .execute(self.connection_key, self.transfer_key)
+        .execute(self.connection_key, self.transfer_key, self.request_key)
     }
 }
 
@@ -228,6 +235,7 @@ impl sealed::Sealed for ValidateData {}
 pub struct FetchPlaceholders {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    request_key: RawRequestKey,
     count: Arc<Mutex<u64>>,
 }
 
@@ -236,11 +244,13 @@ impl FetchPlaceholders {
     pub(crate) fn new(
         connection_key: RawConnectionKey,
         transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
         count: Arc<Mutex<u64>>,
     ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            request_key,
             count,
         }
     }
@@ -270,7 +280,7 @@ impl FetchPlaceholders {
             total,
             placeholders,
         }
-        .execute(self.connection_key, self.transfer_key)
+        .execute(self.connection_key, self.transfer_key, self.request_key)
     }
 }
 
@@ -279,25 +289,39 @@ impl FetchPlaceholders {
 pub struct Dehydrate {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    request_key: RawRequestKey,
 }
 
 impl Dehydrate {
     /// Create a new [Dehydrate].
-    pub(crate) fn new(connection_key: RawConnectionKey, transfer_key: RawTransferKey) -> Self {
+    pub(crate) fn new(
+        connection_key: RawConnectionKey,
+        transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
+    ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            request_key,
         }
     }
 
     /// Allows the pending dehydration to proceed; success is not a completion notification.
     pub fn pass(&self) -> core::Result<()> {
-        command::Dehydrate { blob: &[] }.execute(self.connection_key, self.transfer_key)
+        command::Dehydrate { blob: &[] }.execute(
+            self.connection_key,
+            self.transfer_key,
+            self.request_key,
+        )
     }
 
     /// Allows the pending dehydration and supplies a new file blob to the platform.
     pub fn pass_with_blob(&self, blob: &[u8]) -> core::Result<()> {
-        command::Dehydrate { blob }.execute(self.connection_key, self.transfer_key)
+        command::Dehydrate { blob }.execute(
+            self.connection_key,
+            self.transfer_key,
+            self.request_key,
+        )
     }
 }
 
@@ -306,21 +330,27 @@ impl Dehydrate {
 pub struct Delete {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    request_key: RawRequestKey,
 }
 
 impl Delete {
     /// Create a new [Delete].
-    pub(crate) fn new(connection_key: RawConnectionKey, transfer_key: RawTransferKey) -> Self {
+    pub(crate) fn new(
+        connection_key: RawConnectionKey,
+        transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
+    ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            request_key,
         }
     }
 
     /// Allows the pending deletion or undelete to proceed.
     /// This does not prove that the file has been permanently removed.
     pub fn pass(&self) -> core::Result<()> {
-        command::Delete.execute(self.connection_key, self.transfer_key)
+        command::Delete.execute(self.connection_key, self.transfer_key, self.request_key)
     }
 }
 
@@ -329,19 +359,25 @@ impl Delete {
 pub struct Rename {
     connection_key: RawConnectionKey,
     transfer_key: RawTransferKey,
+    request_key: RawRequestKey,
 }
 
 impl Rename {
     /// Create a new [Rename].
-    pub(crate) fn new(connection_key: RawConnectionKey, transfer_key: RawTransferKey) -> Self {
+    pub(crate) fn new(
+        connection_key: RawConnectionKey,
+        transfer_key: RawTransferKey,
+        request_key: RawRequestKey,
+    ) -> Self {
         Self {
             connection_key,
             transfer_key,
+            request_key,
         }
     }
 
     /// Allows the pending rename/move to proceed. The local operation can still fail.
     pub fn pass(&self) -> core::Result<()> {
-        command::Rename.execute(self.connection_key, self.transfer_key)
+        command::Rename.execute(self.connection_key, self.transfer_key, self.request_key)
     }
 }

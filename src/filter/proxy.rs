@@ -95,11 +95,13 @@ unsafe fn fetch_data<T: SyncFilter + 'static>(
         let request = Request::new(*info);
         let connection_key = request.connection_key();
         let transfer_key = request.transfer_key();
+        let request_key = request.request_key();
         let info = info::FetchData((*params).Anonymous.FetchData);
         let range = info.required_file_range();
         let ticket = ticket::FetchData::new(
             connection_key,
             transfer_key,
+            request_key,
             request.file_size(),
             range.clone(),
         );
@@ -109,7 +111,7 @@ unsafe fn fetch_data<T: SyncFilter + 'static>(
         };
 
         // The failure response can itself fail if the request already ended.
-        let _ = command::Write::fail(connection_key, transfer_key, range, e);
+        let _ = command::Write::fail(connection_key, transfer_key, request_key, range, e);
     }
 }
 
@@ -121,16 +123,22 @@ unsafe fn validate_data<T: SyncFilter + 'static>(
         let request = Request::new(*info);
         let connection_key = request.connection_key();
         let transfer_key = request.transfer_key();
+        let request_key = request.request_key();
         let info = info::ValidateData((*params).Anonymous.ValidateData);
         let range = info.file_range();
-        let ticket = ticket::ValidateData::new(connection_key, transfer_key, request.file_size());
+        let ticket = ticket::ValidateData::new(
+            connection_key,
+            transfer_key,
+            request_key,
+            request.file_size(),
+        );
 
         let Err(e) = filter.validate_data(request, ticket, info) else {
             return;
         };
 
         // The failure response can itself fail if the request already ended.
-        let _ = command::Validate::fail(connection_key, transfer_key, range, e);
+        let _ = command::Validate::fail(connection_key, transfer_key, request_key, range, e);
     }
 }
 
@@ -154,8 +162,14 @@ unsafe fn fetch_placeholders<T: SyncFilter + 'static>(
         let request = Request::new(*info);
         let connection_key = request.connection_key();
         let transfer_key = request.transfer_key();
+        let request_key = request.request_key();
         let count = Arc::new(Mutex::new(0));
-        let ticket = ticket::FetchPlaceholders::new(connection_key, transfer_key, count.clone());
+        let ticket = ticket::FetchPlaceholders::new(
+            connection_key,
+            transfer_key,
+            request_key,
+            count.clone(),
+        );
 
         let result = filter.fetch_placeholders(
             request,
@@ -170,11 +184,16 @@ unsafe fn fetch_placeholders<T: SyncFilter + 'static>(
             Ok(()) => command::CreatePlaceholders::complete(
                 connection_key,
                 transfer_key,
+                request_key,
                 *count.lock().unwrap(),
             ),
-            Err(error) => {
-                command::CreatePlaceholders::fail(connection_key, transfer_key, (), error)
-            }
+            Err(error) => command::CreatePlaceholders::fail(
+                connection_key,
+                transfer_key,
+                request_key,
+                (),
+                error,
+            ),
         };
     }
 }
@@ -223,7 +242,8 @@ unsafe fn notify_dehydrate<T: SyncFilter + 'static>(
         let request = Request::new(*info);
         let connection_key = request.connection_key();
         let transfer_key = request.transfer_key();
-        let ticket = ticket::Dehydrate::new(connection_key, transfer_key);
+        let request_key = request.request_key();
+        let ticket = ticket::Dehydrate::new(connection_key, transfer_key, request_key);
 
         let Err(e) = filter.dehydrate(
             request,
@@ -234,7 +254,7 @@ unsafe fn notify_dehydrate<T: SyncFilter + 'static>(
         };
 
         // The failure response can itself fail if the request already ended.
-        let _ = command::Dehydrate::fail(connection_key, transfer_key, (), e);
+        let _ = command::Dehydrate::fail(connection_key, transfer_key, request_key, (), e);
     }
 }
 
@@ -258,7 +278,8 @@ unsafe fn notify_delete<T: SyncFilter + 'static>(
         let request = Request::new(*info);
         let connection_key = request.connection_key();
         let transfer_key = request.transfer_key();
-        let ticket = ticket::Delete::new(connection_key, transfer_key);
+        let request_key = request.request_key();
+        let ticket = ticket::Delete::new(connection_key, transfer_key, request_key);
 
         let Err(e) = filter.delete(request, ticket, info::Delete((*params).Anonymous.Delete))
         else {
@@ -266,7 +287,7 @@ unsafe fn notify_delete<T: SyncFilter + 'static>(
         };
 
         // The failure response can itself fail if the request already ended.
-        let _ = command::Delete::fail(connection_key, transfer_key, (), e);
+        let _ = command::Delete::fail(connection_key, transfer_key, request_key, (), e);
     }
 }
 
@@ -290,7 +311,8 @@ unsafe fn notify_rename<T: SyncFilter + 'static>(
         let request = Request::new(*info);
         let connection_key = request.connection_key();
         let transfer_key = request.transfer_key();
-        let ticket = ticket::Rename::new(connection_key, transfer_key);
+        let request_key = request.request_key();
+        let ticket = ticket::Rename::new(connection_key, transfer_key, request_key);
         let info = info::Rename::new((*params).Anonymous.Rename, request.volume_letter());
 
         let Err(e) = filter.rename(request, ticket, info) else {
@@ -298,7 +320,7 @@ unsafe fn notify_rename<T: SyncFilter + 'static>(
         };
 
         // The failure response can itself fail if the request already ended.
-        let _ = command::Rename::fail(connection_key, transfer_key, (), e);
+        let _ = command::Rename::fail(connection_key, transfer_key, request_key, (), e);
     }
 }
 
@@ -340,31 +362,34 @@ unsafe fn callback_boundary(
         std::mem::forget(payload);
         let connection = (*info).ConnectionKey.0;
         let transfer = (*info).TransferKey;
+        let request_key = (*info).RequestKey;
         let error = CloudErrorKind::Unsuccessful;
         let _ = match kind {
             CloudFilters::CF_CALLBACK_TYPE_FETCH_DATA => command::Write::fail(
                 connection,
                 transfer,
+                request_key,
                 info::FetchData((*params).Anonymous.FetchData).required_file_range(),
                 error,
             ),
             CloudFilters::CF_CALLBACK_TYPE_VALIDATE_DATA => command::Validate::fail(
                 connection,
                 transfer,
+                request_key,
                 info::ValidateData((*params).Anonymous.ValidateData).file_range(),
                 error,
             ),
             CloudFilters::CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS => {
-                command::CreatePlaceholders::fail(connection, transfer, (), error)
+                command::CreatePlaceholders::fail(connection, transfer, request_key, (), error)
             }
             CloudFilters::CF_CALLBACK_TYPE_NOTIFY_DEHYDRATE => {
-                command::Dehydrate::fail(connection, transfer, (), error)
+                command::Dehydrate::fail(connection, transfer, request_key, (), error)
             }
             CloudFilters::CF_CALLBACK_TYPE_NOTIFY_DELETE => {
-                command::Delete::fail(connection, transfer, (), error)
+                command::Delete::fail(connection, transfer, request_key, (), error)
             }
             CloudFilters::CF_CALLBACK_TYPE_NOTIFY_RENAME => {
-                command::Rename::fail(connection, transfer, (), error)
+                command::Rename::fail(connection, transfer, request_key, (), error)
             }
             _ => Ok(()),
         };

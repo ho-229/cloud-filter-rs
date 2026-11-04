@@ -351,7 +351,7 @@ mod tests {
         let result = SyncFilter::fetch_data(
             &bridge,
             unsafe { Request::new(CF_CALLBACK_INFO::default()) },
-            ticket::FetchData::new(0, 0, 0, 0..1),
+            ticket::FetchData::new(0, 0, 0, 0, 0..1),
             info::FetchData(Default::default()),
         );
         assert!(matches!(result, Err(CloudErrorKind::Unsuccessful)));
