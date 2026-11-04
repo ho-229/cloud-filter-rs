@@ -127,6 +127,40 @@ fn command_client() -> anyhow::Result<()> {
             fs::remove_dir_all(client.join(name))?;
             Ok(())
         }
+        "list" => {
+            fs::read_dir(client.join(name))?.collect::<std::io::Result<Vec<_>>>()?;
+            Ok(())
+        }
+        "shell-delete" => {
+            use windows::{
+                core::PCWSTR,
+                Win32::{System::Com::*, UI::Shell::*},
+            };
+            let path = widestring::U16CString::from_os_str(client.join(name))?;
+            unsafe {
+                CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
+            }
+            let result = (|| {
+                unsafe {
+                    let operation: IFileOperation =
+                        CoCreateInstance(&FileOperation, None, CLSCTX_INPROC_SERVER)?;
+                    operation.SetOperationFlags(FOF_NO_UI)?; // No recycle bin, as with Shift+Delete.
+                    let item: IShellItem =
+                        SHCreateItemFromParsingName(PCWSTR(path.as_ptr()), None)?;
+                    operation.DeleteItem(&item, None)?;
+                    operation.PerformOperations()?;
+                    ensure!(
+                        !operation.GetAnyOperationsAborted()?.as_bool(),
+                        "Shell deletion aborted"
+                    );
+                }
+                Ok(())
+            })();
+            unsafe {
+                CoUninitialize();
+            }
+            result
+        }
         "rename-collision" => {
             use windows::{core::PCWSTR, Win32::Storage::FileSystem::MoveFileW};
             let source = widestring::U16CString::from_os_str(client.join(name))?;
@@ -776,6 +810,46 @@ fn wait_for_server_path(path: &Path, exists: bool) -> anyhow::Result<()> {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    Ok(())
+}
+
+#[test]
+#[ignore = "Windows 10 build 19044: Shell reports success but leaves empty cloud directories"]
+fn shell_deletion_removes_directory_tree() -> anyhow::Result<()> {
+    let root = TestRoot::new()?;
+    let client = root.path.join("client");
+    let server = root.path.join("server");
+    for name in ["unpopulated", "hydrated", "populated"] {
+        for branch in ["a/b/c", "d/e/f", "empty/nested"] {
+            fs::create_dir_all(server.join(name).join(branch))?;
+            if !branch.starts_with("empty") {
+                fs::write(server.join(name).join(branch).join("file.bin"), b"contents")?;
+            }
+        }
+    }
+    let connection = connect(&client, root.mirror())?;
+    client_action(&client, "list", "", "")?;
+    populate(&client.join("hydrated"))?;
+    for branch in ["a/b/c", "d/e/f"] {
+        client_command(&client, "hydrate", &format!("hydrated/{branch}/file.bin"))?;
+    }
+    populate(&client.join("populated"))?;
+    // On build 19044, Shell deletes unpopulated and fully hydrated trees, but
+    // leaves ancestors of offline files behind in a populated tree. Native
+    // RemoveDirectory tracing shows no retry after the children are removed.
+    // Unlike remove_dir_all, IFileOperation reports success despite the leftovers.
+    for name in ["unpopulated", "hydrated", "populated"] {
+        client_action(&client, "shell-delete", name, "")?;
+        ensure!(!client.join(name).try_exists()?, "Shell left {name} behind");
+        wait_for_server_path(&server.join(name), false)?;
+    }
+    drop(connection);
+    let _connection = connect(&client, root.mirror())?;
+    populate(&client)?;
+    ensure!(
+        fs::read_dir(&client)?.next().is_none(),
+        "deleted directories returned"
+    );
     Ok(())
 }
 
