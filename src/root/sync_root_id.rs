@@ -1,7 +1,6 @@
 use std::{
     ffi::{OsStr, OsString},
     mem,
-    os::windows::ffi::OsStringExt,
     path::Path,
     ptr,
 };
@@ -129,7 +128,7 @@ impl SyncRootId {
     pub fn from_path<P: AsRef<Path>>(path: P) -> core::Result<Self> {
         let path = storage_path(path.as_ref())?;
         StorageProviderSyncRootManager::GetSyncRootInformationForFolder(
-            &StorageFolder::GetFolderFromPathAsync(&HSTRING::from(path.as_os_str()))?.get()?,
+            &StorageFolder::GetFolderFromPathAsync(&HSTRING::from(path.as_os_str()))?.join()?,
         )
         .and_then(|info| info.Id().map(Self))
     }
@@ -203,12 +202,12 @@ impl SyncRootId {
 
     /// Encodes the [SyncRootId] to an [OsString].
     pub fn to_os_string(&self) -> OsString {
-        OsString::from_wide(self.0.as_wide())
+        self.0.to_os_string()
     }
 
     /// A reference to the [SyncRootId] as a 16 bit string.
     pub fn as_u16_str(&self) -> &U16Str {
-        U16Str::from_slice(self.0.as_wide())
+        U16Str::from_slice(&self.0)
     }
 
     /// Borrows the underlying [HSTRING].
@@ -228,7 +227,6 @@ impl SyncRootId {
         let mut components = Vec::with_capacity(3);
         components.extend(
             self.0
-                .as_wide()
                 .split(|&byte| byte == Self::SEPARATOR)
                 .map(U16Str::from_slice),
         );
@@ -303,7 +301,7 @@ impl SecurityId {
             ConvertSidToStringSidW(token_user.User.Sid, &mut sid as *mut _)?;
 
             let string_sid = U16CStr::from_ptr_str(sid.0).to_os_string();
-            LocalFree(HLOCAL(sid.0 as *mut _));
+            LocalFree(Some(HLOCAL(sid.0 as *mut _)));
 
             Ok(SecurityId::new(string_sid))
         }

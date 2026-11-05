@@ -1,6 +1,5 @@
 use std::{
     ffi::{OsStr, OsString},
-    os::windows::ffi::OsStringExt,
     path::{Path, PathBuf},
 };
 
@@ -146,7 +145,7 @@ impl SyncRootInfo {
     pub fn set_path(&mut self, path: impl AsRef<Path>) -> Result<()> {
         let path = storage_path(path.as_ref())?;
         self.0.SetPath(
-            &StorageFolder::GetFolderFromPathAsync(&HSTRING::from(path.as_os_str()))?.get()?,
+            &StorageFolder::GetFolderFromPathAsync(&HSTRING::from(path.as_os_str()))?.join()?,
         )
     }
 
@@ -176,7 +175,7 @@ impl SyncRootInfo {
 
     /// The version number of the sync root provider.
     pub fn version(&self) -> OsString {
-        OsString::from_wide(self.0.Version().unwrap().as_wide())
+        self.0.Version().unwrap().to_os_string()
     }
 
     /// Sets the version number of the sync root provider.

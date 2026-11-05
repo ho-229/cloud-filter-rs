@@ -38,7 +38,7 @@ impl Command for Read<'_> {
     const OPERATION: CF_OPERATION_TYPE = CloudFilters::CF_OPERATION_TYPE_RETRIEVE_DATA;
 
     type Result = u64;
-    type Field = CF_OPERATION_PARAMETERS_0_5;
+    type Field = CF_OPERATION_PARAMETERS_0_1;
 
     unsafe fn result(info: CF_OPERATION_PARAMETERS_0) -> Self::Result {
         info.RetrieveData.ReturnedLength as u64
@@ -46,7 +46,7 @@ impl Command for Read<'_> {
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         Ok(CF_OPERATION_PARAMETERS_0 {
-            RetrieveData: CF_OPERATION_PARAMETERS_0_5 {
+            RetrieveData: CF_OPERATION_PARAMETERS_0_1 {
                 Flags: CloudFilters::CF_OPERATION_RETRIEVE_DATA_FLAG_NONE,
                 Buffer: self.buffer.as_mut_ptr().cast(),
                 Offset: utility::checked_offset(self.position)?,
@@ -70,13 +70,13 @@ impl Command for Write<'_> {
     const OPERATION: CF_OPERATION_TYPE = CloudFilters::CF_OPERATION_TYPE_TRANSFER_DATA;
 
     type Result = ();
-    type Field = CF_OPERATION_PARAMETERS_0_6;
+    type Field = CF_OPERATION_PARAMETERS_0_0;
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         Ok(CF_OPERATION_PARAMETERS_0 {
-            TransferData: CF_OPERATION_PARAMETERS_0_6 {
+            TransferData: CF_OPERATION_PARAMETERS_0_0 {
                 Flags: CloudFilters::CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
                 Buffer: self.buffer.as_ptr() as *mut _,
@@ -102,7 +102,7 @@ impl Fallible for Write<'_> {
         let (offset, length) = utility::checked_range(context)?;
         execute::<Self>(
             CF_OPERATION_PARAMETERS_0 {
-                TransferData: CF_OPERATION_PARAMETERS_0_6 {
+                TransferData: CF_OPERATION_PARAMETERS_0_0 {
                     Flags: CloudFilters::CF_OPERATION_TRANSFER_DATA_FLAG_NONE,
                     CompletionStatus: error_kind.into(),
                     Buffer: std::ptr::null_mut(),
@@ -134,7 +134,7 @@ impl Command for RestartHydration<'_> {
     const OPERATION: CF_OPERATION_TYPE = CloudFilters::CF_OPERATION_TYPE_RESTART_HYDRATION;
 
     type Result = ();
-    type Field = CF_OPERATION_PARAMETERS_0_4;
+    type Field = CF_OPERATION_PARAMETERS_0_3;
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
@@ -147,7 +147,7 @@ impl Command for RestartHydration<'_> {
             return Err(Foundation::ERROR_NOT_SUPPORTED.into());
         }
         Ok(CF_OPERATION_PARAMETERS_0 {
-            RestartHydration: CF_OPERATION_PARAMETERS_0_4 {
+            RestartHydration: CF_OPERATION_PARAMETERS_0_3 {
                 Flags: if self.mark_in_sync {
                     CloudFilters::CF_OPERATION_RESTART_HYDRATION_FLAG_MARK_IN_SYNC
                 } else {
@@ -198,7 +198,7 @@ impl Command for CreatePlaceholders<'_> {
     const OPERATION: CF_OPERATION_TYPE = CloudFilters::CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS;
 
     type Result = ();
-    type Field = CF_OPERATION_PARAMETERS_0_7;
+    type Field = CF_OPERATION_PARAMETERS_0_4;
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
@@ -218,7 +218,7 @@ impl Command for CreatePlaceholders<'_> {
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         Ok(CF_OPERATION_PARAMETERS_0 {
-            TransferPlaceholders: CF_OPERATION_PARAMETERS_0_7 {
+            TransferPlaceholders: CF_OPERATION_PARAMETERS_0_4 {
                 Flags: CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
                 PlaceholderTotalCount: utility::checked_offset(self.total)?,
@@ -250,7 +250,7 @@ impl Fallible for CreatePlaceholders<'_> {
     ) -> core::Result<Self::Result> {
         execute::<Self>(
             CF_OPERATION_PARAMETERS_0 {
-                TransferPlaceholders: CF_OPERATION_PARAMETERS_0_7 {
+                TransferPlaceholders: CF_OPERATION_PARAMETERS_0_4 {
                     Flags: CloudFilters::CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE,
                     CompletionStatus: error_kind.into(),
                     PlaceholderTotalCount: 0,
@@ -277,14 +277,14 @@ impl Command for Validate {
     const OPERATION: CF_OPERATION_TYPE = CloudFilters::CF_OPERATION_TYPE_ACK_DATA;
 
     type Result = ();
-    type Field = CF_OPERATION_PARAMETERS_0_0;
+    type Field = CF_OPERATION_PARAMETERS_0_2;
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         let (offset, length) = utility::checked_range(self.range)?;
         Ok(CF_OPERATION_PARAMETERS_0 {
-            AckData: CF_OPERATION_PARAMETERS_0_0 {
+            AckData: CF_OPERATION_PARAMETERS_0_2 {
                 Flags: CloudFilters::CF_OPERATION_ACK_DATA_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
                 Offset: offset,
@@ -307,7 +307,7 @@ impl Fallible for Validate {
         let (offset, length) = utility::checked_range(context)?;
         execute::<Self>(
             CF_OPERATION_PARAMETERS_0 {
-                AckData: CF_OPERATION_PARAMETERS_0_0 {
+                AckData: CF_OPERATION_PARAMETERS_0_2 {
                     Flags: CloudFilters::CF_OPERATION_ACK_DATA_FLAG_NONE,
                     CompletionStatus: error_kind.into(),
                     Offset: offset,
@@ -332,13 +332,13 @@ impl Command for Dehydrate<'_> {
     const OPERATION: CF_OPERATION_TYPE = CloudFilters::CF_OPERATION_TYPE_ACK_DEHYDRATE;
 
     type Result = ();
-    type Field = CF_OPERATION_PARAMETERS_0_1;
+    type Field = CF_OPERATION_PARAMETERS_0_5;
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         Ok(CF_OPERATION_PARAMETERS_0 {
-            AckDehydrate: CF_OPERATION_PARAMETERS_0_1 {
+            AckDehydrate: CF_OPERATION_PARAMETERS_0_5 {
                 Flags: CloudFilters::CF_OPERATION_ACK_DEHYDRATE_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
                 FileIdentity: match self.blob.is_empty() {
@@ -363,7 +363,7 @@ impl Fallible for Dehydrate<'_> {
     ) -> core::Result<Self::Result> {
         execute::<Self>(
             CF_OPERATION_PARAMETERS_0 {
-                AckDehydrate: CF_OPERATION_PARAMETERS_0_1 {
+                AckDehydrate: CF_OPERATION_PARAMETERS_0_5 {
                     Flags: CloudFilters::CF_OPERATION_ACK_DEHYDRATE_FLAG_NONE,
                     CompletionStatus: error_kind.into(),
                     FileIdentity: ptr::null(),
@@ -385,13 +385,13 @@ impl Command for Delete {
     const OPERATION: CF_OPERATION_TYPE = CloudFilters::CF_OPERATION_TYPE_ACK_DELETE;
 
     type Result = ();
-    type Field = CF_OPERATION_PARAMETERS_0_2;
+    type Field = CF_OPERATION_PARAMETERS_0_7;
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         Ok(CF_OPERATION_PARAMETERS_0 {
-            AckDelete: CF_OPERATION_PARAMETERS_0_2 {
+            AckDelete: CF_OPERATION_PARAMETERS_0_7 {
                 Flags: CloudFilters::CF_OPERATION_ACK_DELETE_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
             },
@@ -411,7 +411,7 @@ impl Fallible for Delete {
     ) -> core::Result<Self::Result> {
         execute::<Self>(
             CF_OPERATION_PARAMETERS_0 {
-                AckDelete: CF_OPERATION_PARAMETERS_0_2 {
+                AckDelete: CF_OPERATION_PARAMETERS_0_7 {
                     Flags: CloudFilters::CF_OPERATION_ACK_DELETE_FLAG_NONE,
                     CompletionStatus: error_kind.into(),
                 },
@@ -431,13 +431,13 @@ impl Command for Rename {
     const OPERATION: CF_OPERATION_TYPE = CloudFilters::CF_OPERATION_TYPE_ACK_RENAME;
 
     type Result = ();
-    type Field = CF_OPERATION_PARAMETERS_0_3;
+    type Field = CF_OPERATION_PARAMETERS_0_6;
 
     unsafe fn result(_info: CF_OPERATION_PARAMETERS_0) -> Self::Result {}
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         Ok(CF_OPERATION_PARAMETERS_0 {
-            AckRename: CF_OPERATION_PARAMETERS_0_3 {
+            AckRename: CF_OPERATION_PARAMETERS_0_6 {
                 Flags: CloudFilters::CF_OPERATION_ACK_RENAME_FLAG_NONE,
                 CompletionStatus: Foundation::STATUS_SUCCESS,
             },
@@ -457,7 +457,7 @@ impl Fallible for Rename {
     ) -> core::Result<Self::Result> {
         execute::<Self>(
             CF_OPERATION_PARAMETERS_0 {
-                AckRename: CF_OPERATION_PARAMETERS_0_3 {
+                AckRename: CF_OPERATION_PARAMETERS_0_6 {
                     Flags: CloudFilters::CF_OPERATION_ACK_RENAME_FLAG_NONE,
                     CompletionStatus: error_kind.into(),
                 },

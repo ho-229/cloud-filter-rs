@@ -2,12 +2,12 @@ use std::path::Path;
 
 use windows::{
     core::{Result, HSTRING},
-    Foundation::Collections::IIterable,
     Storage::{
         Provider::{StorageProviderItemProperties, StorageProviderItemProperty},
         StorageFile, StorageFolder,
     },
 };
+use windows_collections::IIterable;
 
 use crate::utility::storage_path;
 
@@ -40,12 +40,12 @@ pub fn set_item_properties(path: impl AsRef<Path>, properties: &[ItemProperty]) 
             Ok(Some(property))
         })
         .collect::<Result<Vec<_>>>()?;
-    let list = IIterable::<StorageProviderItemProperty>::try_from(list)?;
+    let list = IIterable::<StorageProviderItemProperty>::from(list);
     if path.is_dir() {
-        let folder = StorageFolder::GetFolderFromPathAsync(&name)?.get()?;
-        StorageProviderItemProperties::SetAsync(&folder, &list)?.get()
+        let folder = StorageFolder::GetFolderFromPathAsync(&name)?.join()?;
+        StorageProviderItemProperties::SetAsync(&folder, &list)?.join()
     } else {
-        let file = StorageFile::GetFileFromPathAsync(&name)?.get()?;
-        StorageProviderItemProperties::SetAsync(&file, &list)?.get()
+        let file = StorageFile::GetFileFromPathAsync(&name)?.join()?;
+        StorageProviderItemProperties::SetAsync(&file, &list)?.join()
     }
 }

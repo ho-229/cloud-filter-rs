@@ -37,25 +37,25 @@ impl Metadata {
 
     /// The time the file/directory was created.
     pub fn created(mut self, time: FileTime) -> Self {
-        self.0.BasicInfo.CreationTime = time.try_into().unwrap();
+        self.0.BasicInfo.CreationTime = time.to_raw().try_into().unwrap();
         self
     }
 
     /// The time the file/directory was last accessed.
     pub fn accessed(mut self, time: FileTime) -> Self {
-        self.0.BasicInfo.LastAccessTime = time.try_into().unwrap();
+        self.0.BasicInfo.LastAccessTime = time.to_raw().try_into().unwrap();
         self
     }
 
     /// The time the file/directory content was last written.
     pub fn written(mut self, time: FileTime) -> Self {
-        self.0.BasicInfo.LastWriteTime = time.try_into().unwrap();
+        self.0.BasicInfo.LastWriteTime = time.to_raw().try_into().unwrap();
         self
     }
 
     /// The time the file/directory content or metadata was changed.
     pub fn changed(mut self, time: FileTime) -> Self {
-        self.0.BasicInfo.ChangeTime = time.try_into().unwrap();
+        self.0.BasicInfo.ChangeTime = time.to_raw().try_into().unwrap();
         self
     }
 

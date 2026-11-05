@@ -17,7 +17,7 @@ where
 {
     /// Converts a UTF-16 buffer to a Windows reference-counted [HSTRING].
     fn to_hstring(&self) -> HSTRING {
-        HSTRING::from_wide(self.as_ref()).unwrap()
+        HSTRING::from_wide(self.as_ref())
     }
 }
 

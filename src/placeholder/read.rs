@@ -349,7 +349,7 @@ impl Placeholder {
             )
         };
         match state {
-            CloudFilters::CF_PLACEHOLDER_STATE_INVALID => Err(core::Error::from_win32()),
+            CloudFilters::CF_PLACEHOLDER_STATE_INVALID => Err(core::Error::from_thread()),
             CloudFilters::CF_PLACEHOLDER_STATE_NO_STATES => Ok(None),
             state => Ok(Some(PlaceholderState(state))),
         }

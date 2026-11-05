@@ -398,12 +398,12 @@ impl SyncFilter for Filter {
                         metadata
                             .written(
                                 stat.mtime
-                                    .and_then(|time| FileTime::from_unix_time(time as _).ok())
+                                    .and_then(|time| FileTime::from_unix_time(time as _, 0).ok())
                                     .unwrap_or_default(),
                             )
                             .accessed(
                                 stat.atime
-                                    .and_then(|time| FileTime::from_unix_time(time as _).ok())
+                                    .and_then(|time| FileTime::from_unix_time(time as _, 0).ok())
                                     .unwrap_or_default(),
                             ),
                     )

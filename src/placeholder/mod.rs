@@ -178,7 +178,7 @@ impl<'a> Win32Handle<'a> {
                 handle: owner.handle,
             });
         }
-        if !unsafe { CfReferenceProtectedHandle(owner.handle) }.as_bool() {
+        if !unsafe { CfReferenceProtectedHandle(owner.handle) } {
             return Err(E_HANDLE.into());
         }
         let guard = Self {

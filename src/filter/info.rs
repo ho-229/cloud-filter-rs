@@ -11,7 +11,7 @@ use windows::Win32::Storage::CloudFilters::{
 };
 
 /// Information for the [SyncFilter::fetch_data][crate::filter::SyncFilter::fetch_data] callback.
-pub struct FetchData(pub(crate) CF_CALLBACK_PARAMETERS_0_6);
+pub struct FetchData(pub(crate) CF_CALLBACK_PARAMETERS_0_1);
 
 impl FetchData {
     /// Whether or not the callback was called from an interrupted hydration.
@@ -42,7 +42,7 @@ impl FetchData {
 
     /// The last time the file was dehydrated.
     pub fn last_dehydration_time(&self) -> FileTime {
-        self.0.LastDehydrationTime.try_into().unwrap()
+        FileTime::new(self.0.LastDehydrationTime.try_into().unwrap())
     }
 
     /// The reason the file was last dehydrated.
@@ -95,7 +95,7 @@ impl Debug for CancelFetchData {
 }
 
 /// Information for the [SyncFilter::validate_data][crate::filter::SyncFilter::validate_data] callback.
-pub struct ValidateData(pub(crate) CF_CALLBACK_PARAMETERS_0_11);
+pub struct ValidateData(pub(crate) CF_CALLBACK_PARAMETERS_0_2);
 
 impl ValidateData {
     /// Whether validation was requested by an explicit hydration operation.
@@ -124,7 +124,7 @@ impl Debug for ValidateData {
 pub struct FetchPlaceholders(OsString);
 
 impl FetchPlaceholders {
-    pub(crate) unsafe fn new(info: CF_CALLBACK_PARAMETERS_0_7) -> Self {
+    pub(crate) unsafe fn new(info: CF_CALLBACK_PARAMETERS_0_3) -> Self {
         Self(wide_string(info.Pattern.0).unwrap_or_default())
     }
 
@@ -183,7 +183,7 @@ impl Debug for CancelFetchPlaceholders {
 }
 
 /// Information for the [SyncFilter::opened][super::SyncFilter::opened] callback.
-pub struct Opened(pub(crate) CF_CALLBACK_PARAMETERS_0_8);
+pub struct Opened(pub(crate) CF_CALLBACK_PARAMETERS_0_4);
 
 impl Opened {
     /// The placeholder metadata is corrupt.
@@ -208,7 +208,7 @@ impl Debug for Opened {
 }
 
 /// Information for the [SyncFilter::closed][super::SyncFilter::closed] callback.
-pub struct Closed(pub(crate) CF_CALLBACK_PARAMETERS_0_1);
+pub struct Closed(pub(crate) CF_CALLBACK_PARAMETERS_0_5);
 
 impl Closed {
     /// Whether or not the placeholder was deleted as a result of the close.
@@ -226,7 +226,7 @@ impl Debug for Closed {
 }
 
 /// Information for the [SyncFilter::dehydrate][super::SyncFilter::dehydrate] callback.
-pub struct Dehydrate(pub(crate) CF_CALLBACK_PARAMETERS_0_3);
+pub struct Dehydrate(pub(crate) CF_CALLBACK_PARAMETERS_0_6);
 
 impl Dehydrate {
     /// Whether or not the callback was called from a system background service.
@@ -250,7 +250,7 @@ impl Debug for Dehydrate {
 }
 
 /// Information for the [SyncFilter::dehydrated][super::SyncFilter::dehydrated] callback.
-pub struct Dehydrated(pub(crate) CF_CALLBACK_PARAMETERS_0_2);
+pub struct Dehydrated(pub(crate) CF_CALLBACK_PARAMETERS_0_7);
 
 impl Dehydrated {
     /// Whether or not the callback was called from a system background service.
@@ -281,7 +281,7 @@ impl Debug for Dehydrated {
 }
 
 /// Information for the [SyncFilter::delete][super::SyncFilter::delete] callback.
-pub struct Delete(pub(crate) CF_CALLBACK_PARAMETERS_0_5);
+pub struct Delete(pub(crate) CF_CALLBACK_PARAMETERS_0_8);
 
 impl Delete {
     /// Whether or not the placeholder being deleted is a directory.
@@ -309,7 +309,7 @@ impl Debug for Delete {
 /// Information for the [SyncFilter::deleted][crate::filter::SyncFilter::deleted] callback.
 #[derive(Debug)]
 #[allow(dead_code)]
-pub struct Deleted(pub(crate) CF_CALLBACK_PARAMETERS_0_4);
+pub struct Deleted(pub(crate) CF_CALLBACK_PARAMETERS_0_9);
 
 /// Information for the [SyncFilter::rename][crate::filter::SyncFilter::rename] callback.
 pub struct Rename {
@@ -363,7 +363,7 @@ impl Debug for Rename {
 pub struct Renamed(PathBuf);
 
 impl Renamed {
-    pub(crate) unsafe fn new(info: CF_CALLBACK_PARAMETERS_0_9, volume: OsString) -> Self {
+    pub(crate) unsafe fn new(info: CF_CALLBACK_PARAMETERS_0_11, volume: OsString) -> Self {
         let mut path = PathBuf::from(volume);
         path.push(wide_string(info.SourcePath.0).unwrap_or_default());
         Self(path)
@@ -425,7 +425,7 @@ mod tests {
             let path = U16CString::from_str(r"\root\file.txt").unwrap();
             unsafe {
                 (
-                    FetchPlaceholders::new(CF_CALLBACK_PARAMETERS_0_7 {
+                    FetchPlaceholders::new(CF_CALLBACK_PARAMETERS_0_3 {
                         Pattern: PCWSTR(pattern.as_ptr()),
                         ..Default::default()
                     }),
@@ -437,7 +437,7 @@ mod tests {
                         "C:".into(),
                     ),
                     Renamed::new(
-                        CF_CALLBACK_PARAMETERS_0_9 {
+                        CF_CALLBACK_PARAMETERS_0_11 {
                             SourcePath: PCWSTR(path.as_ptr()),
                             ..Default::default()
                         },

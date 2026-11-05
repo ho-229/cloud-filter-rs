@@ -6,6 +6,7 @@ authors = [
   "ho-229 <ho229v3666@gmail.com>",
 ]
 edition = "2021"
+rust-version = "1.93"
 description = "A safe and idiomatic wrapper around the Windows Cloud Filter API"
 license = "MIT"
 repository = "https://github.com/ho-229/cloud-filter-rs"
@@ -16,11 +17,11 @@ exclude = ["examples/", ".github/", "test/"]
 default-target = "x86_64-pc-windows-msvc"
 
 [dependencies]
-flagset = "0.4.5"
-widestring = "1.0.2"
-nt-time = "0.8.0"
-memoffset = "0.9.1"
-windows = { version = "0.58.0", features = [
+flagset = "0.4.7"
+widestring = "1.2.1"
+nt-time = "0.15.0"
+windows-collections = "0.3.2"
+windows = { version = "0.62.2", features = [
   "Wdk_Storage_FileSystem",
   "Win32_Foundation",
   "Win32_Storage_CloudFilters",
@@ -33,7 +34,6 @@ windows = { version = "0.58.0", features = [
   "Storage",
   "Storage_Search",
   "Foundation",
-  "Foundation_Collections",
   "Win32_Security_Authorization",
   "Win32_UI_Shell",
   "Win32_System_Com",
@@ -42,19 +42,16 @@ windows = { version = "0.58.0", features = [
   "Storage_Streams",
   "Win32_System_Ioctl",
   "Win32_Security",
-  "implement",
 ] }
-globset = { version = "0.4.9", optional = true }
+globset = { version = "0.4.21", optional = true }
 
 [dev-dependencies]
-clap = { version = "4.6", features = ["derive"] }
-libtest-mimic = "0.7.3"
-futures = "0.3.30"
-anyhow = "1.0.86"
-widestring = "1.0.2"
-ssh2 = "0.9.4"
-thiserror = "1.0.30"
-ctrlc = "3.4.4"
+clap = { version = "4.6.7", features = ["derive"] }
+libtest-mimic = "0.8.2"
+futures = "0.3.34"
+anyhow = "1.0.104"
+ssh2 = "0.9.6"
+ctrlc = "3.5.2"
 
 [features]
 # Enable globs in the `info::FetchPlaceholders` struct.
