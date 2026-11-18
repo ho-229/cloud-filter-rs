@@ -66,7 +66,12 @@ jobs:
             throw 'SFTPGo checksum mismatch'
           }
           Expand-Archive target/sftpgo.zip target/sftpgo-2.7.6
-          cargo build --example cf-cli --all-features
+          # Cargo's test executable layout can differ from its example binary layout.
+          $artifacts = cargo build --example cf-cli --all-features --message-format=json | ForEach-Object { $_ | ConvertFrom-Json }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cli = $artifacts | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.target.name -eq 'cf-cli' -and $_.executable } | Select-Object -ExpandProperty executable -Last 1
+          if (-not $cli) { throw 'Cargo did not report the cf-cli executable' }
+          "CF_CLI_TEST_EXE=$cli" >> $env:GITHUB_ENV
 
       - name: Native filesystem behavior
         if: matrix.suite == 'filesystem'

@@ -57,7 +57,9 @@ fn populate(path: &Path) -> anyhow::Result<()> {
 }
 
 fn client_command(client: &Path, command: &str, name: &str) -> anyhow::Result<()> {
-    let binary = env::current_exe()?.with_file_name(format!("cf-cli{}", env::consts::EXE_SUFFIX));
+    let binary = env::var_os("CF_CLI_TEST_EXE").map(PathBuf::from).unwrap_or(
+        env::current_exe()?.with_file_name(format!("cf-cli{}", env::consts::EXE_SUFFIX)),
+    );
     let output = std::process::Command::new(binary)
         .arg(command)
         .arg(client.join(name))
@@ -934,8 +936,12 @@ fn namespace_changes_wait_for_completion() -> anyhow::Result<()> {
     assert!(server.join("file.txt").exists());
     assert!(!server.join("renamed.txt").exists());
     mirror.renamed(request, info);
-    wait_for_server_path(&server.join("renamed.txt"), true)?;
-    assert_eq!(fs::read(server.join("renamed.txt"))?, b"remote contents");
+    // The remote rename can precede the final upload and its write/delete-denying handle.
+    wait_for_upload(
+        &client.join("renamed.txt"),
+        &server.join("renamed.txt"),
+        b"remote contents",
+    )?;
 
     client_action(&client, "delete", "renamed.txt", "")?;
     let Completion::Closed(request, info) = receiver.recv_timeout(Duration::from_secs(5))? else {
