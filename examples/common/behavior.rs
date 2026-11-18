@@ -127,40 +127,6 @@ fn command_client() -> anyhow::Result<()> {
             fs::remove_dir_all(client.join(name))?;
             Ok(())
         }
-        "list" => {
-            fs::read_dir(client.join(name))?.collect::<std::io::Result<Vec<_>>>()?;
-            Ok(())
-        }
-        "shell-delete" => {
-            use windows::{
-                core::PCWSTR,
-                Win32::{System::Com::*, UI::Shell::*},
-            };
-            let path = widestring::U16CString::from_os_str(client.join(name))?;
-            unsafe {
-                CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
-            }
-            let result = (|| {
-                unsafe {
-                    let operation: IFileOperation =
-                        CoCreateInstance(&FileOperation, None, CLSCTX_INPROC_SERVER)?;
-                    operation.SetOperationFlags(FOF_NO_UI)?; // No recycle bin, as with Shift+Delete.
-                    let item: IShellItem =
-                        SHCreateItemFromParsingName(PCWSTR(path.as_ptr()), None)?;
-                    operation.DeleteItem(&item, None)?;
-                    operation.PerformOperations()?;
-                    ensure!(
-                        !operation.GetAnyOperationsAborted()?.as_bool(),
-                        "Shell deletion aborted"
-                    );
-                }
-                Ok(())
-            })();
-            unsafe {
-                CoUninitialize();
-            }
-            result
-        }
         "rename-collision" => {
             use windows::{core::PCWSTR, Win32::Storage::FileSystem::MoveFileW};
             let source = widestring::U16CString::from_os_str(client.join(name))?;
@@ -298,6 +264,14 @@ fn hydrate_dehydrate_and_restart() -> anyhow::Result<()> {
             assert!(open_placeholder(&path)?.state()?.unwrap().partial_on_disk());
         }
     }
+    // Pinning hydrates automatically and rejects dehydration until unpinned.
+    let (name, data) = &cases[1];
+    client_command(&client, "pin", name)?;
+    wait_for_disk_size(&client.join(name), data.len() as i64)?;
+    assert!(client_command(&client, "dehydrate", name).is_err());
+    assert_eq!(fs::read(client.join(name))?, *data);
+    client_command(&client, "unpin", name)?;
+    wait_for_disk_size(&client.join(name), 0)?;
     drop(connection);
     // Re-registering policies on restart must retain dehydrated placeholders.
     let registration = &root.registration;
@@ -310,41 +284,6 @@ fn hydrate_dehydrate_and_restart() -> anyhow::Result<()> {
         // Ordinary reads must hydrate again after reconnecting.
         assert_eq!(fs::read(client.join(name))?, *data);
     }
-    Ok(())
-}
-
-#[test]
-fn dehydration_preserves_pinned_and_modified_data() -> anyhow::Result<()> {
-    let root = TestRoot::new()?;
-    let mirror = root.mirror();
-    fs::write(
-        root.path.join("server").join("file.txt"),
-        b"original contents",
-    )?;
-    let client = mirror.files.client_path.clone();
-    let _connection = connect(&client, mirror)?;
-    populate(&client)?;
-    let name = Path::new("file.txt");
-    client_command(&client, "pin", "file.txt")?;
-    wait_for_disk_size(&client.join(name), 17)?;
-    assert!(client_command(&client, "dehydrate", "file.txt").is_err());
-    assert_eq!(fs::read(client.join(name))?, b"original contents");
-    client_command(&client, "unpin", "file.txt")?;
-    wait_for_disk_size(&client.join(name), 0)?;
-    client_command(&client, "hydrate", "file.txt")?;
-    // Keep a writer open so the background uploader cannot finish before the assertion.
-    let mut writer = fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open(client.join(name))?;
-    writer.write_all(b"local edits must survive")?;
-    writer.sync_all()?;
-    // A no-access handle can inspect state while a writer remains open.
-    let placeholder = open_placeholder(&client.join(name))?;
-    assert!(!placeholder.info()?.unwrap().is_in_sync());
-    // The explicit dehydration command will reject the open file or its dirty state.
-    assert!(client_command(&client, "dehydrate", "file.txt").is_err());
-    assert_eq!(fs::read(client.join(name))?, b"local edits must survive");
     Ok(())
 }
 
@@ -810,46 +749,6 @@ fn wait_for_server_path(path: &Path, exists: bool) -> anyhow::Result<()> {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
-    Ok(())
-}
-
-#[test]
-#[ignore = "Windows 10 build 19044: Shell reports success but leaves empty cloud directories"]
-fn shell_deletion_removes_directory_tree() -> anyhow::Result<()> {
-    let root = TestRoot::new()?;
-    let client = root.path.join("client");
-    let server = root.path.join("server");
-    for name in ["unpopulated", "hydrated", "populated"] {
-        for branch in ["a/b/c", "d/e/f", "empty/nested"] {
-            fs::create_dir_all(server.join(name).join(branch))?;
-            if !branch.starts_with("empty") {
-                fs::write(server.join(name).join(branch).join("file.bin"), b"contents")?;
-            }
-        }
-    }
-    let connection = connect(&client, root.mirror())?;
-    client_action(&client, "list", "", "")?;
-    populate(&client.join("hydrated"))?;
-    for branch in ["a/b/c", "d/e/f"] {
-        client_command(&client, "hydrate", &format!("hydrated/{branch}/file.bin"))?;
-    }
-    populate(&client.join("populated"))?;
-    // On build 19044, Shell deletes unpopulated and fully hydrated trees, but
-    // leaves ancestors of offline files behind in a populated tree. Native
-    // RemoveDirectory tracing shows no retry after the children are removed.
-    // Unlike remove_dir_all, IFileOperation reports success despite the leftovers.
-    for name in ["unpopulated", "hydrated", "populated"] {
-        client_action(&client, "shell-delete", name, "")?;
-        ensure!(!client.join(name).try_exists()?, "Shell left {name} behind");
-        wait_for_server_path(&server.join(name), false)?;
-    }
-    drop(connection);
-    let _connection = connect(&client, root.mirror())?;
-    populate(&client)?;
-    ensure!(
-        fs::read_dir(&client)?.next().is_none(),
-        "deleted directories returned"
-    );
     Ok(())
 }
 

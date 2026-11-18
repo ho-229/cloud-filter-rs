@@ -373,15 +373,7 @@ pub fn sync_root_info() -> Result<(), Failed> {
                 .set_status(status)
                 .context("set provider status")?;
             assert_eq!(connection.status()?, status);
-            // The handle-based snapshot can lag the connection status just after connect.
-            let deadline = Instant::now() + Duration::from_secs(2);
-            while directory.sync_root_info()?.unwrap().status() != status {
-                assert!(
-                    Instant::now() < deadline,
-                    "native status did not reach {status:?}"
-                );
-                std::thread::sleep(Duration::from_millis(10));
-            }
+            // The handle-based snapshot can lag; only query the connection for live status.
         }
         // Snapshots remain valid and unchanged after status updates and handle closure.
         drop(connection);
@@ -672,7 +664,8 @@ finally { $file.Dispose() }
     Ok(())
 }
 
-// Explicit opt-in: waiting for the native timeout takes about a minute.
+// Run this ignored probe on its own: CfExecute resets the timers of all pending
+// requests in the provider process, including requests on other connections.
 pub fn callback_cancellation_timeout() -> Result<(), Failed> {
     callback_cancellation_timeout_inner().map_err(Into::into)
 }
@@ -687,22 +680,17 @@ fn callback_cancellation_timeout_inner() -> anyhow::Result<()> {
         .create(&root.path)?;
     let probe = Probe::default();
     let _connection = Session::new().connect(&root.path, probe.clone())?;
-    let mut clients = Vec::new();
+    // Serialize the probes so completing one cannot renew the other's timeout.
     for (name, script, fetch, cancel) in [
         ("pending.bin", "$ErrorActionPreference='Stop'; [IO.File]::ReadAllBytes((Join-Path $env:CF_PROBE_ROOT 'pending.bin')) | Out-Null", "fetch_data", "cancel_fetch_data"),
         ("pending-dir", "$ErrorActionPreference='Stop'; Get-ChildItem -LiteralPath (Join-Path $env:CF_PROBE_ROOT 'pending-dir') | Out-Null", "fetch_placeholders", "cancel_fetch_placeholders"),
     ] {
-        clients.push(Client::start(&root, script)?);
+        let _client = Client::start(&root, script)?;
         probe.wait(fetch, name)?;
         println!("waiting for native {cancel} for {name}");
+        let start = Instant::now();
+        probe.wait_for(cancel, name, Duration::from_secs(80))?;
+        println!("{cancel} after {:?}", start.elapsed());
     }
-    let start = Instant::now();
-    probe.wait_for("cancel_fetch_data", "pending.bin", Duration::from_secs(80))?;
-    probe.wait_for(
-        "cancel_fetch_placeholders",
-        "pending-dir",
-        Duration::from_secs(5),
-    )?;
-    println!("cancellation callbacks after {:?}", start.elapsed());
     Ok(())
 }

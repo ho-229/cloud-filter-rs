@@ -118,14 +118,21 @@ impl Client {
         ))
     }
     pub fn run(root: &Root, script: &str) -> anyhow::Result<()> {
-        let mut client = Self::start(root, script)?;
+        Self::start(root, script)?.wait()
+    }
+
+    pub fn run_command(command: &mut Command) -> anyhow::Result<()> {
+        Self(command.stdin(Stdio::null()).spawn()?).wait()
+    }
+
+    fn wait(mut self) -> anyhow::Result<()> {
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
-            if let Some(status) = client.0.try_wait()? {
+            if let Some(status) = self.0.try_wait()? {
                 ensure!(status.success(), "client: {status}");
                 return Ok(());
             }
-            ensure!(Instant::now() < deadline, "client timed out: {script}");
+            ensure!(Instant::now() < deadline, "client timed out");
             std::thread::sleep(Duration::from_millis(20));
         }
     }

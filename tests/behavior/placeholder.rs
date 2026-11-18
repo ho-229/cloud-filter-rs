@@ -20,12 +20,89 @@ use libtest_mimic::Failed;
 use windows::Wdk::Storage::FileSystem::{
     RtlQueryThreadPlaceholderCompatibilityMode, RtlSetThreadPlaceholderCompatibilityMode,
 };
+use windows::Win32::Foundation::E_INVALIDARG;
 use windows::Win32::Storage::FileSystem::{
     GetFileType, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_READ_ATTRIBUTES,
     FILE_TYPE_DISK,
 };
 
 use super::common::{open, Root};
+
+pub fn invalid_inputs_leave_placeholders_unchanged() -> Result<(), Failed> {
+    let root = Root::new()?;
+    let invalid_path = root.path.join("bad\0path");
+    assert_eq!(
+        Placeholder::open(&invalid_path).unwrap_err().code(),
+        E_INVALIDARG
+    );
+    assert_eq!(
+        PlaceholderCreateInfo::new("never-created")
+            .create(&invalid_path)
+            .unwrap_err()
+            .code(),
+        E_INVALIDARG
+    );
+    assert_eq!(
+        [PlaceholderCreateInfo::new("never-created")]
+            .create(&invalid_path)
+            .unwrap_err()
+            .code(),
+        E_INVALIDARG
+    );
+
+    root.register(false)?;
+    root.file("original.bin")?;
+    let path = root.path.join("original.bin");
+    let mut original = open(&path)?;
+    for size in [i64::MAX as u64 + 1, u64::MAX] {
+        assert_eq!(
+            PlaceholderCreateInfo::new("invalid.bin")
+                .metadata(Metadata::file().size(size))
+                .create(&root.path)
+                .unwrap_err()
+                .code(),
+            E_INVALIDARG
+        );
+        assert_eq!(
+            original
+                .update(
+                    UpdateOptions::default()
+                        .metadata(Metadata::file().size(size))
+                        .blob(b"must not replace identity")
+                        .mark_not_in_sync(),
+                    None,
+                )
+                .unwrap_err()
+                .code(),
+            E_INVALIDARG
+        );
+    }
+    assert_eq!(fs::metadata(&path)?.len(), 8192);
+    let info = original.info()?.unwrap();
+    assert_eq!(info.blob(), b"original.bin");
+    assert!(info.is_in_sync());
+
+    // Reject only the invalid entry, retaining both the earlier and later successes.
+    let mut batch = [
+        ("before.bin", 1),
+        ("invalid.bin", u64::MAX),
+        ("after.bin", 2),
+    ]
+    .map(|(name, size)| {
+        PlaceholderCreateInfo::new(name)
+            .metadata(Metadata::file().size(size))
+            .blob(name.as_bytes().to_vec())
+            .mark_in_sync()
+    });
+    assert_eq!(batch.create(&root.path).unwrap_err().code(), E_INVALIDARG);
+    assert!(batch[0].result()? > 0);
+    assert_eq!(batch[1].result().unwrap_err().code(), E_INVALIDARG);
+    assert!(batch[2].result()? > 0);
+    assert!(!root.path.join("invalid.bin").exists());
+    assert_eq!(fs::metadata(root.path.join("before.bin"))?.len(), 1);
+    assert_eq!(fs::metadata(root.path.join("after.bin"))?.len(), 2);
+    Ok(())
+}
 
 pub fn file_usn_tracks_changes() -> Result<(), Failed> {
     let root = Root::new()?;
@@ -58,8 +135,9 @@ pub fn file_usn_tracks_changes() -> Result<(), Failed> {
     Ok(())
 }
 
-pub fn file_round_trip_transfers_ownership() -> Result<(), Failed> {
+pub fn placeholder_handles() -> Result<(), Failed> {
     let directory = Root::new()?;
+    // Ordinary Win32 handles transfer ownership back to File; CF handles below cannot.
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -86,11 +164,8 @@ pub fn file_round_trip_transfers_ownership() -> Result<(), Failed> {
         unsafe { RtlQueryThreadPlaceholderCompatibilityMode() },
         previous
     );
-    Ok(())
-}
-
-pub fn placeholder_outputs_and_protected_handles_remain_valid() -> Result<(), Failed> {
-    let directory = Root::new()?;
+    drop(file);
+    drop(device);
     directory.register(false)?;
 
     let usn = PlaceholderCreateInfo::new("owned.txt")

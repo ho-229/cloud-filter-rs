@@ -40,7 +40,10 @@ remote changes remains the provider's responsibility.
 
 Cancellation can arrive late and without process information. Killing the reader did not
 reliably produce an immediate callback; both fetch cancellation callbacks were observed on
-timeout, after about 60 seconds.
+timeout, after about 60 seconds without further provider responses. A valid
+[`CfExecute`](https://learn.microsoft.com/en-us/windows/win32/api/cfapi/nf-cfapi-cfexecute)
+call resets the timers of **all pending requests in the provider process**, so unrelated
+responses can postpone cancellation. Run the ignored cancellation probe on its own.
 
 Hydration restart worked with FULL policy while preserving file size. A restart that changed
 size stalled inside `CfExecute`; the library consequently rejects size changes with
