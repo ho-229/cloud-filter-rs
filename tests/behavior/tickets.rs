@@ -38,6 +38,12 @@ impl Restart {
         &self,
         restart: impl Fn(ticket::RestartHydrationOptions<'static>) -> core::Result<()>,
     ) -> CResult<()> {
+        let invalid =
+            ticket::RestartHydrationOptions::default().metadata(Metadata::file().size(u64::MAX));
+        assert_eq!(
+            restart(invalid).unwrap_err().code(),
+            windows::Win32::Foundation::E_INVALIDARG
+        );
         // Resizing pending hydration stalled in CldFlt on build 19044. Reject it
         // before the native call, and verify this leaves the ticket usable.
         if self.policy == HydrationType::Full {

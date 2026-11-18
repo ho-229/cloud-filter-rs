@@ -101,8 +101,8 @@ impl FetchData {
             CfReportProviderProgress(
                 CF_CONNECTION_KEY(self.connection_key),
                 self.transfer_key,
-                total as i64,
-                completed as i64,
+                utility::checked_offset(total)?,
+                utility::checked_offset(completed)?,
             )
         }?;
 

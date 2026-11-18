@@ -5,6 +5,7 @@ use std::{
     pin::Pin,
 };
 
+use widestring::U16CString;
 use windows::core::{self, HSTRING};
 
 use crate::sealed;
@@ -22,6 +23,10 @@ where
 }
 
 impl<T: AsRef<[u16]>> ToHString for T {}
+
+pub(crate) fn wide_path(path: &Path) -> core::Result<U16CString> {
+    U16CString::from_os_str(path).map_err(|_| windows::Win32::Foundation::E_INVALIDARG.into())
+}
 
 // WinRT storage APIs require DOS/UNC paths, without the verbatim prefix.
 pub(crate) fn storage_path(path: &Path) -> core::Result<PathBuf> {

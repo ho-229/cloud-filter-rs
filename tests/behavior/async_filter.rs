@@ -24,6 +24,13 @@ impl Filter for MemFilter {
         if info.required_file_range() != (0..CONTENT.len() as u64) {
             return Err(CloudErrorKind::InvalidRequest);
         }
+        // Invalid progress must leave the pending fetch usable for the real transfer.
+        for (total, completed) in [(u64::MAX, 0), (1, u64::MAX)] {
+            assert_eq!(
+                ticket.report_progress(total, completed).unwrap_err().code(),
+                windows::Win32::Foundation::E_INVALIDARG
+            );
+        }
         ticket
             .write_at(request.file_blob(), 0)
             .map_err(|_| CloudErrorKind::Unsuccessful)

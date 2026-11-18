@@ -1,13 +1,12 @@
 use crate::{
     filter::{self, AsyncBridge, Filter, SyncFilter},
     root::{connect::Connection, state_watcher::spawn_root_watcher},
-    utility::LocalBoxFuture,
+    utility::{wide_path, LocalBoxFuture},
 };
 use std::{
     path::Path,
     sync::{Arc, Weak},
 };
-use widestring::U16CString;
 use windows::{
     core::{self, PCWSTR},
     Win32::Storage::CloudFilters::{self, CfConnectSyncRoot, CF_CONNECT_FLAGS},
@@ -42,6 +41,7 @@ impl Session {
         P: AsRef<Path>,
         F: SyncFilter + 'static,
     {
+        let native_path = wide_path(path.as_ref())?;
         let filter = Arc::new(filter);
         let callbacks = filter::callbacks::<F>();
         let context = Box::new(Arc::downgrade(&filter));
@@ -51,11 +51,7 @@ impl Session {
             spawn_root_watcher(path.as_ref().to_path_buf(), filter.clone())?;
         let key = unsafe {
             CfConnectSyncRoot(
-                PCWSTR(
-                    U16CString::from_os_str(path.as_ref())
-                        .expect("not contains nul")
-                        .as_ptr(),
-                ),
+                PCWSTR(native_path.as_ptr()),
                 callbacks.as_ptr(),
                 // The boxed Weak slot stays at a stable address until disconnect completes.
                 Some((&*context as *const Weak<F>).cast()),

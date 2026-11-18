@@ -5,7 +5,6 @@ use std::{
     path::Path,
 };
 
-use widestring::U16CString;
 use windows::{
     core::{self, PCWSTR},
     Win32::{
@@ -48,7 +47,7 @@ impl OpenOptions {
 
     /// Open the placeholder file/directory using `CfOpenFileWithOplock`.
     pub fn open(self, path: impl AsRef<Path>) -> core::Result<Placeholder> {
-        let u16_path = U16CString::from_os_str(path.as_ref()).unwrap();
+        let u16_path = crate::utility::wide_path(path.as_ref())?;
         let handle = unsafe { CfOpenFileWithOplock(PCWSTR(u16_path.as_ptr()), self.flags) }?;
         Ok(Placeholder {
             handle: unsafe { OwnedPlaceholderHandle::from_cfapi(handle) },

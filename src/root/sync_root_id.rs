@@ -325,7 +325,7 @@ fn index_path(path: &Path) -> core::Result<()> {
         crawler.AddDefaultScopeRule(
             PCWSTR(
                 U16CString::from_os_str(url)
-                    .expect("not contains nul")
+                    .map_err(|_| core::Error::from(Foundation::E_INVALIDARG))?
                     .as_ptr(),
             ),
             true,

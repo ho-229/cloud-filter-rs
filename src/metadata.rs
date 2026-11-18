@@ -60,6 +60,7 @@ impl Metadata {
     }
 
     /// The size of the file's content.
+    /// Sizes above `i64::MAX` are rejected with `E_INVALIDARG` when submitted.
     pub fn size(mut self, size: u64) -> Self {
         self.0.FileSize = size as i64;
         self
@@ -69,6 +70,13 @@ impl Metadata {
     pub fn attributes(mut self, attributes: u32) -> Self {
         self.0.BasicInfo.FileAttributes |= attributes;
         self
+    }
+
+    pub(crate) fn validate(&self) -> windows::core::Result<()> {
+        if self.0.FileSize < 0 {
+            return Err(windows::Win32::Foundation::E_INVALIDARG.into());
+        }
+        Ok(())
     }
 }
 

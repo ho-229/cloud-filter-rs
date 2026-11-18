@@ -149,7 +149,12 @@ pub fn startup_failures() -> Result<(), Failed> {
     let file = directory.file("not-a-directory");
     // Missing path fails opening the watcher; a file fails submitting its read;
     // an unregistered directory starts the read but fails the CF connection.
-    for path in [directory.path.join("missing"), file, directory.path.clone()] {
+    for path in [
+        directory.path.join("missing"),
+        directory.path.join("bad\0path"),
+        file,
+        directory.path.clone(),
+    ] {
         let (send, receive) = mpsc::channel();
         assert!(Session::new().connect(path, Filter::new(send)).is_err());
         assert!(matches!(

@@ -334,6 +334,9 @@ impl Placeholder {
         options: UpdateOptions,
         usn: impl Into<Option<&'a mut Usn>>,
     ) -> core::Result<&mut Self> {
+        if let Some(metadata) = options.metadata.as_ref() {
+            metadata.validate()?;
+        }
         unsafe {
             CfUpdatePlaceholder(
                 self.handle.handle,

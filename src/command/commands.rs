@@ -140,11 +140,11 @@ impl Command for RestartHydration<'_> {
 
     fn build(&mut self) -> core::Result<CF_OPERATION_PARAMETERS_0> {
         // Resizing pending hydration stalled in CldFlt on Windows 10 build 19044.
-        if self
-            .metadata
-            .is_some_and(|metadata| metadata.0.FileSize as u64 != self.file_size)
-        {
-            return Err(Foundation::ERROR_NOT_SUPPORTED.into());
+        if let Some(metadata) = self.metadata.as_ref() {
+            metadata.validate()?;
+            if metadata.0.FileSize as u64 != self.file_size {
+                return Err(Foundation::ERROR_NOT_SUPPORTED.into());
+            }
         }
         Ok(CF_OPERATION_PARAMETERS_0 {
             RestartHydration: CF_OPERATION_PARAMETERS_0_3 {

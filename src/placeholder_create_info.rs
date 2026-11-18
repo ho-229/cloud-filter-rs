@@ -9,7 +9,7 @@ use windows::{
     },
 };
 
-use crate::{metadata::Metadata, sealed, usn::Usn};
+use crate::{metadata::Metadata, sealed, usn::Usn, utility::wide_path};
 
 /// A builder for creating new placeholder files/directories.
 #[derive(Debug)]
@@ -123,9 +123,11 @@ impl PlaceholderCreateInfo {
     /// do not use this method. Instead, use
     /// [FetchPlaceholders::pass_with_placeholders][crate::filter::ticket::FetchPlaceholders::pass_with_placeholders].
     pub fn create<P: AsRef<Path>>(mut self, parent: P) -> core::Result<Usn> {
+        Metadata(self.0.FsMetadata).validate()?;
+        let parent = wide_path(parent.as_ref())?;
         unsafe {
             CfCreatePlaceholders(
-                PCWSTR(U16CString::from_os_str(parent.as_ref()).unwrap().as_ptr()),
+                PCWSTR(parent.as_ptr()),
                 slice::from_mut(&mut self.0),
                 CloudFilters::CF_CREATE_FLAG_NONE,
                 None,
@@ -167,7 +169,7 @@ impl BatchCreate for [PlaceholderCreateInfo] {
         if self.is_empty() {
             return Ok(());
         }
-        let path = U16CString::from_os_str(path.as_ref()).unwrap();
+        let path = wide_path(path.as_ref())?;
         create_individually(self, |entry| unsafe {
             CfCreatePlaceholders(
                 PCWSTR(path.as_ptr()),
@@ -191,7 +193,13 @@ pub(crate) fn create_individually(
     // https://learn.microsoft.com/en-us/answers/questions/6057324/
     let mut result = Ok(());
     for entry in placeholders {
-        let created = create(&mut entry.0);
+        let created = Metadata(entry.0.FsMetadata)
+            .validate()
+            .and_then(|()| create(&mut entry.0));
+        if let Err(error) = &created {
+            entry.0.Result = error.code();
+            entry.0.CreateUsn = 0;
+        }
         // CfExecute can succeed while the individual entry failed.
         // Keep attempting later entries, preserving the first error.
         result = result.and(created).and(entry.0.Result.ok());
