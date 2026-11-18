@@ -6,14 +6,33 @@ on:
     paths:
       - "**.rs"
       - "**/Cargo.toml"
+      - "README.md"
       - ".github/workflows/check.yml"
   pull_request:
     paths:
       - "**.rs"
       - "**/Cargo.toml"
+      - "README.md"
       - ".github/workflows/check.yml"
 
 jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        toolchain: ["1.93.0", stable]
+        features: ["", "--all-features"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - uses: Swatinem/rust-cache@v2
+      - name: check all targets
+        run: cargo check --all-targets ${{ matrix.features }}
+      - name: unit tests
+        run: cargo test --lib ${{ matrix.features }}
+
   lint:
     runs-on: windows-latest
     steps:
@@ -21,15 +40,21 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy 
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
 
       - name: clippy
-        run: cargo clippy --all-features --workspace
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: documentation
+        run: cargo doc --no-deps --all-features
         env:
-          RUSTFLAGS: "-Dwarnings"
-  
+          RUSTDOCFLAGS: "-D warnings"
+
+      - name: package verification
+        run: cargo package
+
   format:
     runs-on: windows-latest
     steps:

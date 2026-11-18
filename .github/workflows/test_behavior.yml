@@ -5,27 +5,60 @@ on:
   push:
     paths:
       - "**.rs"
+      - "tests/behavior/**.ps1"
       - "**/Cargo.toml"
       - ".github/workflows/test_behavior.yml"
   pull_request:
     paths:
       - "**.rs"
+      - "tests/behavior/**.ps1"
       - "**/Cargo.toml"
       - ".github/workflows/test_behavior.yml"
 
 jobs:
   test:
-    runs-on: windows-latest
+    name: ${{ matrix.suite }} / ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-latest, windows-11-arm]
+        suite: [filesystem, shell]
+        include:
+          - runner: windows-latest
+            toolchain: stable-x86_64-pc-windows-msvc
+            sftpgo: sftpgo.exe
+          - runner: windows-11-arm
+            toolchain: stable-aarch64-pc-windows-msvc
+            sftpgo: arm64\sftpgo.exe
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: C:\cf-ci
+    env:
+      SFTPGO_TEST_EXE: C:\cf-ci\target\sftpgo-2.7.6\${{ matrix.sftpgo }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Prepare NTFS workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          # The hosted runner workspace may use ReFS; CF sync roots require NTFS.
+          if ((Get-Volume -DriveLetter C).FileSystem -ne 'NTFS') {
+            throw 'C: must be NTFS for CFAPI behavior tests'
+          }
+          Copy-Item -LiteralPath $env:GITHUB_WORKSPACE -Destination C:\cf-ci -Recurse -Force
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber
+          Get-Item "$env:windir\System32\cldapi.dll", "$env:windir\System32\drivers\cldflt.sys" |
+            Select-Object Name, @{Name='Version'; Expression={$_.VersionInfo.FileVersion}}
+
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
 
-      - name: unit tests
-        run: cargo test --lib --all-features
-
-      - name: example behavior
-        env:
-          SFTPGO_TEST_EXE: ${{ github.workspace }}\target\sftpgo-2.7.6\sftpgo.exe
+      - name: Prepare example clients
+        if: matrix.suite == 'filesystem'
         run: |
           New-Item -ItemType Directory -Force target | Out-Null
           Invoke-WebRequest 'https://github.com/drakkan/sftpgo/releases/download/v2.7.6/sftpgo_v2.7.6_windows_portable.zip' -OutFile target/sftpgo.zip
@@ -34,8 +67,32 @@ jobs:
           }
           Expand-Archive target/sftpgo.zip target/sftpgo-2.7.6
           cargo build --example cf-cli --all-features
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --example cloud-mirror --example sftp --all-features -- --test-threads=1
 
-      - name: cargo test
-        run: cargo test --test behavior --all-features
+      - name: Native filesystem behavior
+        if: matrix.suite == 'filesystem'
+        run: 'cargo test --test behavior --all-features -- --skip shell:: --test-threads=1'
+
+      - name: Example filesystem behavior
+        if: matrix.suite == 'filesystem'
+        run: cargo test --example cloud-mirror --example sftp --all-features -- --test-threads=1
+
+      - name: Native Shell behavior
+        if: matrix.suite == 'shell'
+        run: 'cargo test --test behavior --all-features shell:: -- --test-threads=1'
+
+      # Keep the desired assertion and expose failures while Windows issue 6060921 is unresolved.
+      - name: Shell offline deletion (known issue)
+        id: shell-issue
+        if: matrix.suite == 'shell'
+        continue-on-error: true
+        run: cargo test --test behavior --all-features shell::delete_offline_tree -- --exact --ignored
+
+      - name: Shell known issue results
+        if: always() && matrix.suite == 'shell'
+        run: |
+          @'
+          Shell offline-directory deletion ([Windows issue 6060921](https://learn.microsoft.com/en-us/answers/questions/6060921/)):
+          - Native CFAPI provider: ${{ steps.shell-issue.outcome }}
+
+          This probe is non-blocking. The other Shell tests must pass.
+          '@ >> $env:GITHUB_STEP_SUMMARY
